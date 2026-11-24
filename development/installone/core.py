@@ -17,6 +17,7 @@ class Plan:
 
 
 def validate_plan(value, seats):
+    """AI 응답과 DB 계획을 허용 목록으로 재검증한다."""
     if type(value) is not dict or set(value) != {"seats", "profile"}:
         raise ValueError("해석 결과는 seats, profile 두 필드만 가져야 합니다.")
     selected = value["seats"]
@@ -45,6 +46,7 @@ def interpret(request, seats, mode):
 
 
 class Store:
+    """작업·좌석별 결과 저장. 웹 요청 상태도 같은 DB를 사용한다."""
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +105,7 @@ class Store:
 
 
 def execute_job(store, job, executor):
+    """작업을 한 번 점유하고 좌석별 실패를 격리하여 결과를 저장한다."""
     for seat in store.claim(job):
         store.result(job, seat, "running", "")
         try:

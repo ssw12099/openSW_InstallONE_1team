@@ -26,13 +26,16 @@ class GatewayTests(unittest.TestCase):
     def test_config_errors_never_echo_secret(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "local.json"
-            for value in ("TEST_SECRET_ONLY invalid json", json.dumps({**config(), "base_url": "https://attacker.example"}), json.dumps({**config(), "api_key": "secret\r\nheader"}), json.dumps({**config(), "max_tokens": True})):
+            def env(value):
+                return "\n".join("HAIGPT_" + name.upper() + "=" + str(item) for name, item in value.items())
+            invalid_key = "invalid key"
+            for value in ("TEST_SECRET_ONLY invalid env", env({**config(), "base_url": "https://attacker.example"}), env({**config(), "api_key": invalid_key}), env({**config(), "max_tokens": True})):
                 path.write_text(value, encoding="utf-8")
                 with self.assertRaises(GatewayError) as caught:
                     load_config(path)
                 self.assertNotIn("TEST_SECRET_ONLY", str(caught.exception))
                 self.assertNotIn("attacker", str(caught.exception))
-            path.write_text(json.dumps(config()), encoding="utf-8")
+            path.write_text(env(config()), encoding="utf-8")
             self.assertEqual(load_config(path)["model"], "test-llm")
 
     def test_official_request_and_model_filter(self):

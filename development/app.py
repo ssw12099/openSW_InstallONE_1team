@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def create_app(db_path=None, mode="mock", **worker_options):
+    # HTTP 계층은 접근 제어를 맡고 작업 상태는 WebJobs에 위임한다.
     if mode not in ("mock", "haigpt"):
         raise ValueError("지원하지 않는 해석 모드")
     app = Flask(__name__)

@@ -48,7 +48,7 @@ class WebTests(unittest.TestCase):
             response=self.client.get(url)
             self.assertEqual(response.status_code,200)
             response.close()
-        for url in ('/haigpt.local.json','/local.json','/data/mock.db','/scripts/install_python.ps1'):
+        for url in ('/.env', '/installone/settings.py', '/haigpt.local.json','/local.json','/data/mock.db','/scripts/install_python.ps1'):
             self.assertEqual(self.client.get(url).status_code,404)
 
     def test_csrf_origin_host_and_nonlocal_blocked(self):

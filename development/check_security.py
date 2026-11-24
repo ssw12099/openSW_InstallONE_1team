@@ -1,5 +1,5 @@
 """읽기 전용 로컬 Git 점검. 비밀값/원문/원격 URL은 출력하지 않는다."""
-import json
+from installone.haigpt import load_config
 import subprocess
 from pathlib import Path
 
@@ -15,7 +15,7 @@ def git(*args):
 
 def main():
     try:
-        config = json.loads((ROOT / "development/haigpt.local.json").read_text(encoding="utf-8-sig"))
+        config = load_config()
         key = config.get("api_key")
         if not isinstance(key, str) or not key:
             print("FAIL: 로컬 API 키가 없어 해당 키의 노출 여부를 검사할 수 없습니다.")
@@ -39,7 +39,7 @@ def main():
             kind = git("cat-file", "-t", oid).strip()
             if kind in (b"blob", b"commit", b"tag"):
                 history_hits += contains_secret(git("cat-file", kind.decode(), oid))
-        protected = ["development/haigpt.local.json", "development/local.json", "development/data/mock.db"]
+        protected = ["development/.env", "development/haigpt.local.json", "development/local.json", "development/data/mock.db"]
         checks = {}
         for name in protected:
             result = subprocess.run(["git", "check-ignore", "-q", "--", name], cwd=ROOT, capture_output=True)

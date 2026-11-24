@@ -1,10 +1,10 @@
-# 현재 개발 맥락 — 2026-11-24 KST
+# 현재 개발 맥락 — 2026-11-25 KST
 
 ## 목표·작업 상태
 - 소선웅 개인 InstallONE. 11/27 개인 목표, 11/29 비교, 12/8·12/15 발표.
 - 필수 기능만: 자연어 → HaiGPT → 대상/프로필 확인 → 설치/검증 → 좌석별 결과·SQL 이력. 진단/FAQ/업데이트 기능 제외.
 - 사용자가 Tkinter에서 웹 UI로 방향 변경: 조교는 브라우저를 사용하고 Python·비밀 설정은 서버 측에만 둔다.
-- 브랜치 prototype/sunwoong. d4ea4a9는 이전 데스크톱 버전. 2026-11-24 사용자가 웹 전환의 커밋·GitHub 푸시를 요청함. 개인 브랜치에 게시하며 실제 동기화는 git status/원격 SHA로 확인. PR·main 병합은 요청 범위 밖.
+- 브랜치 prototype/sunwoong. 최신 게시 커밋 e33dba9는 웹 버전. 사용자 요청의 커밋 전 자동 검증 구축·로컬 설치·검증 완료. 사용자 요청으로 자동 검증·단일 env·리뷰 문서 변경을 함께 커밋한다. 푸시는 요청되지 않았다. PR·main 병합 없음.
 
 ## 현재 환경·안전 범위
 - 노트북 Windows, Python 3.14.7. VM 미준비, 추후 집 컴퓨터에서 준비. 현재 노트북의 VM 설치·가상화 설정 변경·Python 설치 실험 금지.
@@ -24,13 +24,15 @@
 - requirements.txt: 검증된 Flask/하위 의존성 고정. 테스트는 tests/.
 - check_web.py: --live 실제 HaiGPT 요청 1회+모의 설치 HTTP 통합 검사, --history-only 재접속 후 이력 검사.
 - check_haigpt.py, check_security.py: 설치 없는 API 검사, 현재 키의 로컬 Git 노출 검사.
+- quality/gate.py + run_tests.py: staged-only 공통 검사, 변경 위험도별 테스트 선택, 필수 테스트·런타임 누락/skip 차단. hooks/pre-commit: Git index의 검사기를 실행하는 설치 원본.
+- quality/install_hooks.py: 로컬 Hook 설치. quality/test_hooks.py: 임시 저장소 실제 커밋 검증(원본 저장소 커밋 안 함). 상세는 quality/README.md.
 - Tkinter UI·tk_runtime.py·Tk 전용 테스트 제거. 과거 data/tk-runtime 캐시는 사용 안 함. 기존 data/mock.db 보존, web_requests 추가. 이전 데스크톱 이력 별도 조회.
 
 ## 실행·설정
 - 루트에서 `python -m venv development/.venv`, `development/.venv/Scripts/python.exe -m pip install -r development/requirements.txt`.
 - `development/.venv/Scripts/python.exe -X utf8 development/app.py`는 모의 해석.
 - `... app.py --interpreter haigpt`는 실제 API 해석+모의 설치. 브라우저 http://127.0.0.1:5000. --real 없음.
-- 사용자가 로컬 haigpt.local.json에 키 입력, gpt-6-luna 선택 완료. 새 PC에서는 예시 파일에서 별도 설정. Codex 설정 변경하지 않음.
+- 사용자가 로컬 .env에 키 입력, gpt-6-luna 선택 완료. 새 PC에서는 예시 파일에서 별도 설정. Codex 설정 변경하지 않음.
 - 웹 요청은 해석 중→확인 대기→실행 대기→실행 중→종료. 잘못된 입력은 rejected, 재시작 미완료는 interrupted. 자동 재실행하지 않음.
 - 브라우저는 700ms 폴링. 실행 시 DB 계획 재검증 후 BEGIN IMMEDIATE로 동일 작업 생성 한 번만 허용. 재요청 UUID 중복도 차단. 같은 내용의 새 실행은 '새 요청 시작'.
 
@@ -38,6 +40,8 @@
 - 실제 HTTP 통합: HTML 200, HaiGPT(gpt-6-luna) 1·2번 Python 요청 해석, 계획 확인, 실행 중 조회, 중복 실행 차단, 1번 mock_verified/2번 connection_failed, SQL 이력 성공.
 - 서버 프로세스 종료 후 새 프로세스로 재시작하고 --history-only 조회 성공. API 생성 호출 없이 기존 결과 확인.
 - 기존 및 웹 자동 테스트 **25개 통과**. 중복 동시 실행 8회→작업 1개, 잘못된 요청/계획·토큰/출처 차단, 비밀정보 비노출, 레거시 이력, 재시작 처리 포함. 자동 테스트 HTTP/API/SSH는 모의.
+- Hook 최종 통합 실행(11/24 20:07 종료)을 11/25 재개 시 결과 파일과 소스 시각으로 확인: 수정된 최종 runner 기준 16개 시나리오 모두 예상대로 통과/차단. 고위험 검사에서 앱25개+정책5개 실행. 실제 커밋은 소유한 임시 저장소에서만 시도했고 원본 저장소에는 하지 않음.
+- staged 비밀정보/구문 오류/테스트 실패/의존성 불일치/Python·Node·PowerShell 누락/Hook 구문 오류/필수 테스트 누락/gate 누락 차단 확인. unstaged 코드·검사기와 기존 사용자 Hook/설정 보존 확인. 검사 시작 전보다 index 또는 HEAD를 임의 변경하지 않음.
 - 최종 현재 키 검사: 업로드 후보 45개·로컬 Git 객체 167개에서 일치 0개. 실제 설정·DB Git 제외 확인. 키 자체를 출력하지 않음.
 - 검증용 서버는 종료함. 사용자는 README 명령으로 다시 시작해 확인. 웹 게시 요청을 받았으며 main 병합은 하지 않음.
 - pip check 정상, JS node --check 정상. Node는 개발 시 구문 검사에만 사용, 앱 의존성 아님.
@@ -53,15 +57,24 @@
 ## 집에서 준비할 순서
 1. GitHub의 prototype/sunwoong 브랜치를 클론하거나 해당 브랜치에서 최신 커밋을 가져온다. .venv/data/실제 설정/개인 키는 공유하지 않기.
 2. Python·가상환경·requirements 설치→모의 웹·테스트→새 로컬 API 설정·연결 검사.
-3. Windows x64 VM 스냅샷·SSH 서버/계정/방화벽/키/호스트 지문 준비→승인 대상 local.json. 이후 별도 작업으로 웹의 실제 설치 경로 연결→1대 설치/재사용/실패/조회→2대.
+3. Windows x64 VM 스냅샷·SSH 서버/계정/방화벽/키/호스트 지문 준비→승인 대상 .env의 VM_TARGETS_JSON. 이후 별도 작업으로 웹의 실제 설치 경로 연결→1대 설치/재사용/실패/조회→2대.
 
 ## 바로 다음 1~3개 작업
-1. 브라우저 자동화 환경이 복구되면 localhost UI 시각·클릭 검수.
-2. 실제 모델 모호한/지원 외 입력 확인 및 필요한 보완.
+1. 이번 커밋 후 푸시는 사용자 요청이 있을 때만 진행. 새 클론에서는 quality/install_hooks.py로 Hook 설치.
+2. 브라우저 자동화 환경 복구 후 UI 검수와 실제 모델 모호한/지원 외 입력 확인.
 3. 집 VM 준비 후 실제 설치 경로 연결·검증. 지금 노트북에서는 실행 금지.
 
 ## 스킬·훅
-- 고정 운영: AGENTS.md + CONTEXT.md + 간단한 개인 로그. 새 스킬/자동 훅 설치 없음. 문서 규칙은 자동 실행이 아님.
+- 고정 운영: 루트/개발 AGENTS.md + CONTEXT.md + 개인 로그. 새 스킬 없음. 문서 규칙과 Git 자동 검사는 구분한다.
 - 이번 웹 전환: Sites 스킬의 local-only 지침 사용 (`C:/Users/ssw12/.codex/plugins/cache/openai-curated-remote/sites/1.1.6/skills/sites/SKILL.md`). 호스팅·배포·등록 안 함. 새 환경은 해당 스킬이 없어도 README로 실행 가능.
 - computer-use 스킬은 확인만 했으며 Windows 앱 조작 없음. CUA 브라우저 실행 실패. 과거 documents 스킬로 회의록 내용을 읽었으며 앱 실행에 불필요.
-- Git core.hooksPath 설정 없음, 샘플 훅만 확인한 상태. Codex 전역 설정/모델/로그인 변경 없음.
+- 기존 활성 Hook/CI는 없었음. 사용자 요청으로 `.git/installone-hooks/pre-commit` 설치, `.git/config`의 로컬 core.hooksPath만 설정. 전역 Git/Codex 설정·모델·로그인 변경 없음. 새 클론: venv/requirements 준비 후 `python development/quality/install_hooks.py`.
+- Hook은 staged gate.py를 읽는다. 검사 파일을 stage하기 전 누락 차단을 확인했으며, 이번 커밋에 quality/hooks를 함께 포함한다.
+- 최종 기본/웹/고위험 검사 실측 약 0.94/2.87/4.55초(안내 예상 1~2/3~4/5~8초). 임시 저장소 전체 검증 25.79초. 고위험은 앱25개+정책5개, 의존성 pin/pip check와 구문 검사. 테스트 모듈 import부터 네트워크/외부 프로세스 차단 가드 적용. API/VM/브라우저/온라인 CVE 감사는 자동 검사 범위 밖. CI workflow/원격 강제 보호는 추가하지 않음.
+- 결과 파일은 Git 제외된 data/hook-verification.json. 11/25 설치된 Hook과 버전 관리 예정 원본의 바이트 일치, 로컬 core.hooksPath, 빈 staging 상태, HEAD e33dba9 유지 확인. 상세 보고는 docs/devlogs/소선웅/2026-11-25.md.
+
+## 11/25 설정 구조 정리
+- 설정 단일 입구: development/.env → installone/settings.py. 기존 로컬 키·모델을 값 비교 후 이전, 기존 JSON/예시 제거. .env.example만 공유. OS 환경변수와 혼합하지 않음.
+- ARCHITECTURE.md에 리뷰 순서·폴더 책임 정리. 주요 업무 함수에 책임/안전 경계 주석 추가.
+- 앱28+정책5 테스트 통과. 실제 API는 이번 변경 후 재호출하지 않음(이전 연결 성공 기록 유지). VM/브라우저 미검증. 이번 커밋 대상이며 푸시는 하지 않는다.
+- 이번 구조 변경 후 임시 저장소 Hook 16개 시나리오 재검증 완료(강화 5.49초). pip check 및 현재 키 노출 검사 통과(후보58개/객체200개 일치0). 원본 staging 보존.

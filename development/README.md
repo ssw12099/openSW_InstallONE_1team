@@ -37,6 +37,8 @@ development/.venv/Scripts/python.exe -X utf8 development/app.py --interpreter ha
 
 모의 해석은 정해진 문장 전체를 검사합니다. 지원 문장: `1번 PC에 Python 실습환경 설치해 줘`, `1번, 2번 PC에 Python 실습환경 설치해 줘`. 범위 표현은 모의 해석에서 지원하지 않습니다. HaiGPT 실패 시 모의 응답으로 자동 대체하지 않습니다.
 
+코드 리뷰 순서는 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고하세요.
+
 ## 구성과 이유
 
 **Flask + HTML/CSS/JavaScript + SQLite**를 사용합니다. Flask는 기존 Python 함수를 그대로 호출하고 템플릿과 JSON API를 간단히 만들 수 있어 선택했습니다. 별도 프론트엔드 빌드·DB 서버·작업 큐 서버는 도입하지 않았습니다. 조교는 브라우저만 사용하고 Python과 키 설정은 서버 측에 둡니다. 현재 서버는 노트북의 localhost 전용 개발판입니다.
@@ -75,15 +77,23 @@ Tkinter 화면·런타임 준비 코드와 Tk 전용 테스트를 제거했습�
 
 ## HaiGPT 서버 설정
 
-현재 PC의 Git 제외된 `development/haigpt.local.json`에 사용자가 입력한 키와 선택 모델 `gpt-6-luna`가 있습니다. 키를 출력하거나 공유하지 마세요. 새 PC에서는 `haigpt.example.json`을 `haigpt.local.json`으로 복사하고 별도로 입력합니다.
+설정은 **`development/.env` 한 파일**로 관리합니다. 기존 키·모델을 값 비교 후 옮겼고 이전 JSON 설정은 제거했습니다. 새 PC에서만 예시를 복사하고 키를 별도로 입력하세요.
+
+```powershell
+if (-not (Test-Path development/.env)) { Copy-Item development/.env.example development/.env }
+notepad development/.env
+```
 
 | 항목 | 설정 |
 |---|---|
-| `base_url` | `https://factchat-cloud.mindlogic.ai/v1/gateway` 고정 |
-| `api_key` | 로컬에서만 입력하는 API 키 |
-| `model` | 계정별 공식 LLM 목록에 있는 ID. 예시 파일은 빈 값 |
-| `timeout_seconds` | 기본 45초, 5~120초 |
-| `max_tokens` | 기본 1024, 128~4096 |
+| `HAIGPT_BASE_URL` | 예시의 공식 URL 유지 |
+| `HAIGPT_API_KEY` | 실제 키를 이 항목에만 입력 |
+| `HAIGPT_MODEL` | 계정 목록의 ID. 현재 선택: gpt-6-luna |
+| `HAIGPT_TIMEOUT_SECONDS` | 기본 45초, 5~120 |
+| `HAIGPT_MAX_TOKENS` | 기본 1024, 128~4096 |
+| `VM_TARGETS_JSON` | 현재 `{}` 유지. VM 준비 후 승인 대상만 등록 |
+
+한 줄 KEY=VALUE 형식. 빈 줄과 #로 시작하는 주석을 허용합니다. 양끝 따옴표는 제거하지만 변수/셸 확장·여러 줄·인라인 주석은 지원하지 않습니다. OS 환경변수와 섞지 않고 이 파일만 읽습니다. 변경 후 서버를 재시작하세요. 실제 .env와 백업은 Git 제외이며 .env.example만 공유합니다.
 
 ```powershell
 development/.venv/Scripts/python.exe -X utf8 development/check_haigpt.py --models
@@ -103,7 +113,7 @@ Set-Location development
 .venv/Scripts/python.exe -X utf8 check_security.py
 ```
 
-자동 테스트 25개 통과. 외부 API·SSH를 모의 처리하며 실제 API 테스트와 구분합니다. 웹 서버가 실제 HaiGPT 모드로 실행 중일 때 HTTP 통합 검사:
+자동 테스트 앱 28개 + 정책 5개 통과. 외부 API·SSH를 모의 처리하며 실제 API 테스트와 구분합니다. 웹 서버가 실제 HaiGPT 모드로 실행 중일 때 HTTP 통합 검사:
 
 ```powershell
 # 저장소 루트, 실제 API 해석 1회 + 모의 설치만 수행
@@ -116,7 +126,13 @@ development/.venv/Scripts/python.exe -X utf8 development/check_web.py --history-
 
 키·SSH 설정은 서버에만 두며 Flask 정적 경로는 `static/`으로 한정합니다. localhost 바인딩, Host/Origin 검사, 페이지별이 아닌 서버 실행별 무작위 요청 토큰, CSP와 textContent 렌더링을 적용했습니다. 이는 외부 배포용 로그인·권한 관리가 아닙니다. 다중 사용자·학교 네트워크 배포에는 별도 인증/HTTPS/운영 서버 설계가 필요합니다.
 
-`check_security.py`는 현재 로컬 키의 직접 노출을 업로드 후보·스테이징·로컬 Git 이력에서 검사합니다. 키를 출력하지 않으며, 다른 비밀정보/압축 내용/원격 전체 이력까지 보증하지 않습니다. 키 설정·DB·가상환경·설정 백업은 Git 제외됩니다. 자동 훅은 없습니다.
+`check_security.py`는 현재 로컬 키의 직접 노출을 업로드 후보·스테이징·로컬 Git 이력에서 검사하는 수동 심화 도구입니다. 키를 출력하지 않으며, 다른 비밀정보/압축 내용/원격 전체 이력까지 보증하지 않습니다. 키 설정·DB·가상환경·설정 백업은 Git 제외됩니다.
+
+## 모든 커밋 전 자동 검사
+
+가상환경 준비 후 `python development/quality/install_hooks.py`로 현재 저장소에 pre-commit Hook을 설치합니다. 새 클론에서도 한 번 설치해야 합니다. `git commit` 시 staged 내용만 임시 사본으로 검사하며 실패·필수 환경 누락 시 커밋을 막습니다. 문서 변경은 기본 검사, 화면 변경은 웹 테스트, API/DB/의존성/검사 설정 변경은 전체 모의 테스트와 강화 검사를 적용합니다. 커밋 없는 검사는 `git hook run pre-commit`입니다. 첫 커밋에는 새 quality/hooks 파일도 stage해야 합니다.
+
+범위·시간·차단 사례·한계는 [quality/README.md](quality/README.md)를 참고하세요. 사용자 승인 없는 우회나 기준 완화는 금지합니다. 전역 설정은 변경하지 않습니다.
 
 ## 집 컴퓨터에서 이어가기
 
@@ -124,7 +140,7 @@ development/.venv/Scripts/python.exe -X utf8 development/check_web.py --history-
 2. `.venv/`, `data/`, `__pycache__/`, 실제 API/VM 설정과 개인 SSH 키를 공유 패키지에 넣지 않습니다. 새 PC에서 가상환경과 키를 별도 준비합니다.
 3. 위 실행 명령으로 의존성을 설치하고 모의 웹 흐름·자동 테스트를 먼저 확인합니다. 새 API 설정 → 모델 목록 → 작은 실제 요청 → 웹 HaiGPT 해석과 모의 설치 순으로 확인합니다.
 4. Windows x64 VM 한 대와 스냅샷을 준비합니다. VM의 OpenSSH Server·서비스·방화벽 초기 설정은 관리자 권한이 필요한 별도 준비입니다. 개발 PC에서 오는 SSH만 허용하고 VM 로컬 계정에 공개 키를 등록합니다.
-5. 개발 PC에 개인 키를 보관하고 VM 콘솔에서 SSH 호스트 지문을 확인해 known_hosts에 등록합니다. `local.example.json`을 `local.json`으로 복사해 승인한 VM만 설정합니다. 현재 웹 서버는 이 파일을 읽거나 SSH를 실행하지 않습니다.
+5. 개발 PC에 개인 키를 보관하고 VM 콘솔에서 SSH 호스트 지문을 확인해 known_hosts에 등록합니다. `.env`의 VM_TARGETS_JSON에 좌석 ID별 host, port, user, identity_file, known_hosts, approved_test_vm을 설정합니다. SSH 개인 키는 .ssh에 보관하고 경로만 적습니다. 현재 웹은 VM 설정을 읽거나 SSH를 실행하지 않습니다.
 6. 준비 후 **별도 개발 작업으로** 웹의 실제 실행 경로를 승인 대상에 한해 연결합니다. 현재 버전에 없는 `--real`을 사용하거나 설치 스크립트를 노트북에서 직접 실행하지 마세요.
 7. 대상·설치 범위를 알린 후 1대 설치 → 재요청 재사용 → 버전/예제/pip → 연결/설치/검증 실패 → 재시작 이력 → 가능하면 2대 혼합 결과 순서로 실제 검증합니다.
 

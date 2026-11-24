@@ -1,0 +1,24 @@
+#!/bin/sh
+# InstallONE: installed by development/quality/install_hooks.py; no worktree code execution.
+set -eu
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root"
+py="$root/development/.venv/Scripts/python.exe"
+if [ ! -x "$py" ]; then py="$root/development/.venv/bin/python"; fi
+if [ ! -x "$py" ]; then
+  echo "[gate] BLOCK: project .venv Python missing. See development/quality/README.md." >&2
+  exit 1
+fi
+exec "$py" -I -X utf8 -c '
+import subprocess, sys
+r = subprocess.run(["git", "show", ":development/quality/gate.py"], capture_output=True)
+if r.returncode:
+    print("[gate] BLOCK: staged quality/gate.py missing; stage the versioned quality files.", file=sys.stderr)
+    sys.exit(1)
+try:
+    code = compile(r.stdout, "<staged quality/gate.py>", "exec")
+except Exception:
+    print("[gate] BLOCK: staged gate cannot compile.", file=sys.stderr)
+    sys.exit(1)
+exec(code, {"__name__": "__main__", "__file__": "<staged quality/gate.py>"})
+'

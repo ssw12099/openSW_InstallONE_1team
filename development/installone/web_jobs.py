@@ -17,6 +17,7 @@ class Conflict(ValueError):
 
 
 class WebJobs:
+    """HTTP와 백그라운드 작업 연결. 외부 호출 중 DB 잠금을 잡지 않는다."""
     def __init__(self, path, mode="mock", interpreter=None, executor=None, delay=0.7):
         self.store = Store(path)
         self.mode = mode
@@ -43,6 +44,7 @@ class WebJobs:
         self.pool.shutdown(wait=True)
 
     def submit(self, text, request_key):
+        """재전송 식별자를 저장하고 해석 예약 후 요청 ID를 반환한다."""
         if not isinstance(text, str) or not text.strip() or not 1 <= len(text) <= 1000:
             raise ValueError("요청은 1~1000자로 입력하세요.")
         if not isinstance(request_key, str) or len(request_key) != 36:
@@ -85,6 +87,7 @@ class WebJobs:
                     self.connection = "HaiGPT 최근 해석 미확인 — 요청 오류 또는 보완 필요"
 
     def execute(self, task):
+        """계획 재검증과 작업 생성을 한 트랜잭션으로 묶는다."""
         # 브라우저의 계획은 받지 않는다. DB의 미리보기 계획을 트랜잭션에서 재검증.
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")

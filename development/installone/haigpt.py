@@ -1,12 +1,12 @@
 """공식 BAZE Chat Completions 규격. 설정/HTTP 원문은 출력하지 않는다."""
 import json
 import re
-from pathlib import Path
+from .settings import ENV_FILE, api_values
 from urllib import request, error
 from .core import PROFILE, VERSION, validate_plan
 
 BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway"
-CONFIG = Path(__file__).resolve().parents[1] / "haigpt.local.json"
+CONFIG = ENV_FILE
 
 
 class GatewayError(ValueError):
@@ -20,9 +20,9 @@ class NoRedirect(request.HTTPRedirectHandler):
 
 def load_config(path=CONFIG):
     try:
-        config = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+        config = api_values(path)
     except (OSError, ValueError):
-        raise GatewayError("HaiGPT 미연결: haigpt.local.json 파일과 JSON 형식을 확인하세요.") from None
+        raise GatewayError("HaiGPT 미연결: .env 파일과 설정 형식을 확인하세요.") from None
     required = {"base_url", "api_key", "model", "timeout_seconds", "max_tokens"}
     if type(config) is not dict or set(config) != required:
         raise GatewayError("HaiGPT 미연결: 설정 항목을 예시 파일과 맞춰주세요.")
@@ -56,6 +56,7 @@ class Gateway:
         self.opener = request.build_opener(NoRedirect())
 
     def _json(self, path, payload=None):
+        """인증 헤더는 서버에만 둔다. 리다이렉트와 원문 오류 노출을 차단한다."""
         data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = request.Request(BASE_URL + path, data=data, headers={
             "Authorization": "Bearer " + self.config["api_key"],
@@ -94,6 +95,7 @@ class Gateway:
         return sorted(set(models))
 
     def interpret(self, text, seats):
+        """모델은 계획만 선택하며 실행 전 결과를 재검증한다."""
         if not isinstance(text, str) or not text.strip() or len(text) > 1000:
             raise GatewayError("요청은 1~1000자로 입력하세요.")
         model = self.config["model"]

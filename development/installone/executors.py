@@ -6,21 +6,24 @@ import re
 import subprocess
 from pathlib import Path
 from .core import VERSION
+from .settings import ENV_FILE, vm_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class MockExecutor:
+    """고정 모의 시나리오. 네트워크나 설치 부작용이 없다."""
     def run(self, seat):
         if seat == "2":
             return "connection_failed", "[모의] 2번 연결 실패 시나리오. 실제 접속 없음."
         return "mock_verified", f"[모의] Python {VERSION}, 예제 42. 실제 설치·검증 아님."
 
 
-def load_targets(path):
-    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+def load_targets(path=ENV_FILE):
+    """승인 VM 접속정보 검증. 웹 실행 경로에서는 사용하지 않는다."""
+    data = {"seats": vm_values(path)}
     if type(data) is not dict or set(data) != {"seats"} or type(data["seats"]) is not dict or not data["seats"]:
-        raise ValueError("local.json의 seats 설정을 확인하세요.")
+        raise ValueError(".env의 VM_TARGETS_JSON 설정을 확인하세요.")
     for seat, target in data["seats"].items():
         if not re.fullmatch(r"[1-9][0-9]*", seat) or type(target) is not dict:
             raise ValueError("좌석 설정 형식 오류")
@@ -42,6 +45,7 @@ def load_targets(path):
 
 
 class SSHExecutor:
+    """VM 미검증 실행기. 종료 코드와 버전·예제 응답을 함께 검사한다."""
     def __init__(self, targets):
         self.targets = targets
 

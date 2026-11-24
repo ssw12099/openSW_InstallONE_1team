@@ -52,7 +52,8 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn("SECRET", str(rows))
 
     def test_unapproved_vm_blocked(self):
-        config = Path(__file__).resolve().parents[1] / "local.example.json"
+        config = Path(self.temp.name) / ".env"
+        config.write_text('VM_TARGETS_JSON={"1":{"host":"192.0.2.10","port":22,"user":"labuser","identity_file":"unused","known_hosts":"unused","approved_test_vm":false}}', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "승인된"):
             load_targets(config)
 
