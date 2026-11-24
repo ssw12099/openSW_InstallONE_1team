@@ -3,7 +3,7 @@
 오픈소스SW의 이해 기말 대체 프로젝트 — 실습실 개발환경 설치 서비스.
 팀원: 소선웅, 강건우, 지재헌, 신정빈.
 
-> 팀 협업을 위한 초기 틀입니다. 개발 구조·실행 코드·테스트 결과는 포함하지 않습니다.
+> 팀 협업을 위한 저장소입니다. 이 압축본에는 `development/`에 Windows 다운로드·배포 개인 프로토타입이 포함되어 있습니다. 선정 전 main 병합을 뜻하지 않습니다.
 
 ## 개발은 각자, 협업 기록은 공통
 - `development/`: 각자 자기 프로토타입 브랜치에서 자유롭게 구성합니다. 내부 폴더·파일·실행 방법은 개발자가 정합니다.
@@ -20,7 +20,18 @@
 이번 주 프로토타입 참여자와 이름별 역할 배정은 팀에서 확인합니다.
 기술 방향은 HaiGPT·Python·SQL 사용. 세부 스택 및 개발 폴더 구조는 여기서 지정하지 않습니다.
 
+## 프로토타입 실행
+Windows PowerShell에서 압축을 푼 저장소의 `development/`로 이동한 뒤 [설치 및 실행 안내](development/README.md)의 순서대로 진행합니다.
+
+```powershell
+cd .\development
+.\setup.bat
+# .env의 PUBLIC_API_BASE 설정, AI 사용 시 Ollama 설치 후
+.\start.bat
+```
+
 ## 바로가기
+- [프로토타입 상세 실행 안내](development/README.md)
 - [협업·브랜치·병합 규칙](CONTRIBUTING.md)
 - [팀 전체 현황](docs/progress.md)
 - [개발 로그 작성 안내](docs/devlogs/README.md)

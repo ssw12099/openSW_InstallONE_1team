@@ -1,0 +1,12 @@
+{
+  "id": "python-windows",
+  "name": "Python",
+  "version": "3.13",
+  "platform": "windows-x64",
+  "verification": {
+    "version_command": ["py", "-3.13", "--version"],
+    "example_command": ["py", "-3.13", "-c", "print(1+1)"],
+    "expected_output": "2"
+  },
+  "status": "example-only"
+}
