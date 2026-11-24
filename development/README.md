@@ -8,7 +8,7 @@
 | 항목 | 상태 |
 |---|---|
 | 자연어 해석: 규칙 기반 | 구현, 테스트 통과 |
-| 자연어 해석: AI (HaiGPT·Groq·Ollama, OpenAI 호환 방식) | 구현, 가짜 응답으로 테스트 통과. **HaiGPT 실제 호출은 미확인** (API 형식 확인 필요) |
+| 자연어 해석: AI (HAI-GPT·Groq·Ollama, OpenAI 호환 방식) | 구현, HAI-GPT 문서 형식에 맞춰 가짜 응답으로 테스트 통과. **실제 호출은 미확인** |
 | 해석 결과 확인 후 실행 | 구현 |
 | 모의 좌석 전체 흐름 | 구현, 테스트 통과 |
 | 실제 좌석 설치 (Ansible + WinRM + Chocolatey) | 구현. **Windows VM 미검증**. 로컬 Linux에서 ansible-runner 이벤트 → 상태 분류만 확인 |
@@ -65,16 +65,30 @@ python -m venv .venv
 브라우저에서 http://127.0.0.1:8000 을 열고, 예시 문장을 누른 뒤 **해석하기** → **설치 실행**을 누르세요.
 기본 `src/common/seats.yml`은 4좌석 모두 모의 좌석이고, 화면 확인용으로 3번은 설치 실패, 4번은 이미 설치됨이 나오게 해 두었습니다.
 
-## 2. AI 해석 켜기 (HaiGPT)
+## 2. AI 해석 켜기 (HAI-GPT)
 
-1. `.env.example`을 `.env`로 복사
-2. `LLM_PROVIDER=haigpt`, 그리고 학교 API 안내에 나온 `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`를 채움
-3. 서버를 다시 켜면 오른쪽 위에 "AI 해석 켜짐 (haigpt)"이 보임
+한림대 HAI-GPT API Gateway를 씁니다. OpenAI 호환 방식이고, 호출할 때마다 모델별 토큰 단가만큼 크레딧이 차감됩니다.
+
+1. HAI-GPT 대시보드 → API Gateway → API 키에서 키를 만들고 복사 (키 전체는 만든 직후 한 번만 보임)
+2. `.env.example`을 `.env`로 복사하고 두 줄만 채움
+   ```
+   LLM_PROVIDER=haigpt
+   LLM_API_KEY=(복사한 키)
+   ```
+   주소(`https://factchat-cloud.mindlogic.ai/v1/gateway`)와 모델(`gemini-3.5-flash-lite`)은 기본값이 들어갑니다.
+   다른 모델을 쓰려면 대시보드 '모델' 탭의 ID를 `LLM_MODEL`에 적으세요.
+3. 연결 점검 (서버를 켜지 않고 터미널에서)
+   ```powershell
+   .\.venv\Scripts\python -m src.ai.check --models   # 키·주소가 맞으면 쓸 수 있는 모델 목록이 나옴
+   .\.venv\Scripts\python -m src.ai.check            # 예시 문장 4개를 AI로 해석해 봄
+   .\.venv\Scripts\python -m src.ai.check "4번 자리에 전공 기초 C 수업 준비해 줘"
+   ```
+4. 서버를 다시 켜면 오른쪽 위에 "AI 해석 켜짐 (haigpt)"이 보임
 
 - AI 응답에서 등록되지 않은 좌석·프로필은 버리고 경고로 알려 줍니다.
 - 규칙 기반 해석과 좌석·프로필이 다르면 실행 전에 확인하라는 경고가 뜹니다.
-- AI 호출이 실패하면(연결·인증·한도) 규칙 기반 해석으로 대신하고 이유를 화면에 보여 줍니다.
-- HaiGPT가 OpenAI 호환(`/chat/completions`) 형식이 아니면 `src/ai/providers.py`에 맞춤 클래스를 추가합니다.
+- AI 호출이 실패하면(연결·인증·크레딧·한도) 규칙 기반 해석으로 대신하고 이유를 화면에 보여 줍니다.
+- 응답 형식은 JSON 스키마 강제 → JSON 모드 → 형식 지정 없음 순서로, 모델이 받아 주는 방식을 찾아 씁니다.
 - 다른 무료 선택지: Groq(`LLM_PROVIDER=groq` + 키), Ollama(`LLM_PROVIDER=ollama` + 설치한 모델 이름).
 
 API 키는 `.env`에만 넣습니다. `.env`는 Git에 올라가지 않습니다.
@@ -165,7 +179,7 @@ ansible-runner가 설치된 환경(WSL2)에서는 로컬 플레이북으로 **�
 ## 알려진 한계와 다음 작업
 
 - Windows VM에서 실제 설치 미검증 → 금요일까지 확인 후 위 표에 기입
-- HaiGPT API 형식 미확인
+- HAI-GPT 실제 호출과 모델별 해석 품질 미확인 (`python -m src.ai.check`로 확인 예정)
 - 프로필의 Chocolatey 패키지 이름(python312, temurin21, mingw, git, vscode)은 VM에서 실제 설치로 확인 필요
 - 좌석 접속 계정은 모든 좌석이 하나를 같이 씀 (실습실 공용 관리자 계정 기준)
 - WinRM은 HTTP(5985) + NTLM: 실습용 내부망 기준입니다. 실제 운영이라면 HTTPS 리스너를 권장합니다.

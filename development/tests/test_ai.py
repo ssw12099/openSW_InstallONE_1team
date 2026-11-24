@@ -130,3 +130,97 @@ def test_extract_json_errors():
     with pytest.raises(LLMError):
         extract_json("설명만 있고 JSON 없음")
     assert extract_json('앞 설명 {"a": 1} 뒤 설명') == {"a": 1}
+
+
+def test_javascript_is_not_java(catalog):
+    result = interpret("3번 PC에 자바스크립트 실습 환경 깔아 줘", catalog)
+    assert result.seats == [3]
+    assert result.profiles == []
+    assert result.unsupported == ["JavaScript"]
+    assert interpret("1번에 자바 깔아 줘", catalog).profiles == ["java-basic"]
+
+
+def test_haigpt_style_call_path_billing_and_no_temperature(catalog):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "model": "gemini-3.5-flash-lite",
+            "choices": [{"message": {"content": json.dumps({"seats": [1, 2], "profiles": ["python-data"],
+                                                             "unsupported": [], "reason": "시각화 수업"})}}],
+            "billing": {"cost_usd": 0.0001, "cost_krw": 0.14, "deducted_credit": 0.14},
+        })
+
+    provider = OpenAICompatibleProvider("haigpt", "https://factchat-cloud.mindlogic.ai/v1/gateway",
+                                        "gemini-3.5-flash-lite", api_key="k", chat_path="/chat/completions/",
+                                        transport=httpx.MockTransport(handler))
+    result = interpret("다음 주 파이썬 데이터 시각화 수업을 1번이랑 2번 자리에서 해", catalog, provider)
+    assert seen["url"] == "https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions/"
+    assert "temperature" not in seen["body"]  # temperature를 거부하는 모델이 있어 기본은 보내지 않음
+    schema = seen["body"]["response_format"]["json_schema"]
+    assert schema["strict"] is True and schema["schema"]["additionalProperties"] is False
+    assert result.parser == "ai" and result.profiles == ["python-data"]
+    assert provider.last_call["billing"]["deducted_credit"] == 0.14
+
+
+def test_422_also_falls_back_and_errors_are_readable(catalog):
+    formats = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        formats.append((body.get("response_format") or {}).get("type"))
+        if body.get("response_format"):
+            return httpx.Response(422, json={"error": {"message": "response_format is not supported for this model"}})
+        return chat_response({"seats": [2], "profiles": ["git"], "unsupported": [], "reason": "x"})
+
+    result = interpret("2번에 깃", catalog, make_provider(handler))
+    assert formats == ["json_schema", "json_object", None] and result.parser == "ai"
+
+    def bad_model(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": {"message": "model 'nope' not found", "type": "invalid_request_error"}})
+
+    with pytest.raises(LLMError) as info:
+        make_provider(bad_model).complete_json("s", "u", {})
+    assert "404" in str(info.value) and "not found" in str(info.value)
+
+
+def test_redirect_points_to_chat_path(catalog):
+    provider = make_provider(lambda request: httpx.Response(301, headers={"Location": "/x/"}))
+    with pytest.raises(LLMError) as info:
+        provider.complete_json("s", "u", {})
+    assert "LLM_CHAT_PATH" in str(info.value)
+
+
+def test_list_models_shapes():
+    from src.ai.providers import parse_model_list
+
+    assert parse_model_list({"object": "list", "data": [{"id": "b"}, {"id": "a"}]}) == ["a", "b"]
+    assert parse_model_list([{"id": "gpt-6-luna"}, {"x": 1}]) == ["gpt-6-luna"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/gateway/models/" and request.url.params["type"] == "llm"
+        return httpx.Response(200, json={"data": [{"id": "gemini-3.5-flash-lite"}]})
+
+    provider = OpenAICompatibleProvider("haigpt", "https://factchat-cloud.mindlogic.ai/v1/gateway", "m",
+                                        chat_path="/chat/completions/", transport=httpx.MockTransport(handler))
+    assert provider.list_models() == ["gemini-3.5-flash-lite"]
+
+
+def test_check_tool_without_ai_explains_setup(capsys):
+    from src.ai.check import main
+
+    assert main([]) == 1
+    assert "LLM_PROVIDER=haigpt" in capsys.readouterr().out
+
+
+def test_haigpt_preset(monkeypatch):
+    from src.common.config import reload_settings
+
+    monkeypatch.setenv("LLM_PROVIDER", "haigpt")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    settings = reload_settings()
+    assert settings.llm_enabled
+    assert settings.llm_base_url == "https://factchat-cloud.mindlogic.ai/v1/gateway"
+    assert settings.llm_chat_path == "/chat/completions/" and settings.llm_temperature is None

@@ -37,6 +37,8 @@ KNOWN_UNSUPPORTED = {
     "unity": "Unity", "유니티": "Unity", "mysql": "MySQL", "jupyter": "Jupyter", "주피터": "Jupyter",
     "anaconda": "Anaconda", "아나콘다": "Anaconda", "visual studio 20": "Visual Studio",
 }
+# '자바스크립트'가 Java 프로필로 잡히지 않게 따로 처리
+_JAVASCRIPT = re.compile(r"자바\s*스크립트|java\s*script", re.I)
 
 
 def format_seats(seats: list[int]) -> str:
@@ -111,13 +113,14 @@ def extract_seats(text: str, catalog: Catalog) -> tuple[list[int], list[str], li
 def extract_profiles(text: str, catalog: Catalog) -> tuple[list[str], dict[str, str], list[str]]:
     """(프로필 id 목록, id별 근거 키워드, 지원하지 않는 도구)"""
     lowered = text.lower()
+    masked = _JAVASCRIPT.sub(" ", lowered)
     hits: dict[str, str] = {}
     for profile in catalog.profiles.values():
         for keyword in profile.keywords:
-            if _keyword_hit(lowered, keyword):
+            if _keyword_hit(masked, keyword):
                 hits[profile.id] = keyword
                 break
-    unsupported = []
+    unsupported = ["JavaScript"] if _JAVASCRIPT.search(lowered) else []
     for word, name in KNOWN_UNSUPPORTED.items():
         if _keyword_hit(lowered, word) and name not in unsupported:
             unsupported.append(name)

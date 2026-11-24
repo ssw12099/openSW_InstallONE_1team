@@ -24,6 +24,8 @@ def get_provider(settings: Settings | None = None) -> OpenAICompatibleProvider |
         model=settings.llm_model,
         api_key=settings.llm_api_key,
         timeout=settings.llm_timeout,
+        chat_path=settings.llm_chat_path,
+        temperature=settings.llm_temperature,
     )
 
 

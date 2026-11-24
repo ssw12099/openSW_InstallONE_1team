@@ -30,10 +30,16 @@ if load_dotenv is not None:
 
 # AI 공급자별 기본값. 모두 OpenAI 호환 /chat/completions 방식으로 부릅니다.
 LLM_PRESETS: dict[str, dict[str, str]] = {
-    # HaiGPT는 학교 API 안내에 나온 주소·모델 이름을 .env에 적어서 씁니다.
-    "haigpt": {"base_url": "", "model": ""},
-    "groq": {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b"},
-    "ollama": {"base_url": "http://localhost:11434/v1", "model": "qwen2.5:7b"},
+    # 한림대 HAI-GPT API Gateway. 채팅 경로는 문서대로 끝에 /가 붙습니다.
+    # 모델은 대시보드 '모델' 탭의 ID 중 하나로 바꿀 수 있습니다 (LLM_MODEL).
+    "haigpt": {
+        "base_url": "https://factchat-cloud.mindlogic.ai/v1/gateway",
+        "model": "gemini-3.5-flash-lite",
+        "chat_path": "/chat/completions/",
+    },
+    "groq": {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b",
+             "chat_path": "/chat/completions"},
+    "ollama": {"base_url": "http://localhost:11434/v1", "model": "qwen2.5:7b", "chat_path": "/chat/completions"},
 }
 
 
@@ -50,6 +56,8 @@ class Settings:
     llm_base_url: str
     llm_api_key: str
     llm_model: str
+    llm_chat_path: str
+    llm_temperature: float | None  # None이면 보내지 않음 (temperature를 거부하는 모델이 있음)
     llm_timeout: float
     mock_speed: float  # 모의 좌석 지연 배율 (0이면 즉시 끝남)
     winrm_user: str
@@ -65,6 +73,7 @@ def _load() -> Settings:
     runtime_dir = Path(_env("INSTALLONE_RUNTIME_DIR") or BASE_DIR / "runtime")
     provider = _env("LLM_PROVIDER", "none").lower() or "none"
     preset = LLM_PRESETS.get(provider, {})
+    temperature = _env("LLM_TEMPERATURE")
     return Settings(
         runtime_dir=runtime_dir,
         db_path=Path(_env("INSTALLONE_DB") or runtime_dir / "installone.db"),
@@ -73,6 +82,8 @@ def _load() -> Settings:
         llm_base_url=_env("LLM_BASE_URL") or preset.get("base_url", ""),
         llm_api_key=_env("LLM_API_KEY"),
         llm_model=_env("LLM_MODEL") or preset.get("model", ""),
+        llm_chat_path=_env("LLM_CHAT_PATH") or preset.get("chat_path", "/chat/completions"),
+        llm_temperature=float(temperature) if temperature else None,
         llm_timeout=float(_env("LLM_TIMEOUT", "20") or 20),
         mock_speed=float(_env("INSTALLONE_MOCK_SPEED", "1") or 1),
         winrm_user=_env("INSTALLONE_WINRM_USER"),
