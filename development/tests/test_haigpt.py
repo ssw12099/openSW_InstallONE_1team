@@ -1,7 +1,6 @@
 """모든 HTTP 응답은 모의 응답. 실제 키/네트워크/VM을 사용하지 않는다."""
 import json
 import tempfile
-import time
 import unittest
 from io import BytesIO
 from pathlib import Path
@@ -98,34 +97,3 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(req.full_url, BASE_URL + "/models/?type=llm")
         self.assertEqual(req.get_header("Authorization"), "Bearer TEST_SECRET_ONLY")
         self.assertIsNone(NoRedirect().redirect_request(None, None, 302, "", {}, "https://elsewhere.example"))
-
-    def test_async_ui_hai_response_stays_mock_install(self):
-        import tkinter as tk
-        from app import App
-        from installone.tk_runtime import prepare_tk
-        prepare_tk()
-        with tempfile.TemporaryDirectory() as folder:
-            root = tk.Tk()
-            root.withdraw()
-            app = App(root, interpreter="haigpt", db=Path(folder) / "mock.db")
-            try:
-                with patch("app.interpret", return_value=Plan(("1",), "python-lab")):
-                    app.preview()
-                    deadline = time.monotonic() + 3
-                    while app.busy and time.monotonic() < deadline:
-                        root.update()
-                        time.sleep(.01)
-                self.assertFalse(app.busy)
-                self.assertFalse(app.real)
-                self.assertEqual(app.plan, Plan(("1",), "python-lab"))
-                self.assertEqual(app.store.history(), [])
-                with patch("app.messagebox.askyesno", return_value=True):
-                    app.run()
-                deadline = time.monotonic() + 3
-                while app.busy and time.monotonic() < deadline:
-                    root.update()
-                    time.sleep(.01)
-                row = app.store.history()[0]
-                self.assertEqual((row["interpreter"], row["executor"], row["status"]), ("haigpt", "mock", "mock_verified"))
-            finally:
-                app.close()

@@ -1,7 +1,6 @@
 import json
 import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -75,46 +74,6 @@ class FlowTests(unittest.TestCase):
         run.side_effect = subprocess.TimeoutExpired("ssh", 900)
         self.assertEqual(executor.run("1")[0], "outcome_unknown")
 
-    def test_tk_preview_invalidation_and_history(self):
-        import tkinter as tk
-        from app import App
-        from installone.tk_runtime import prepare_tk
-        prepare_tk()
-        root = tk.Tk()
-        root.withdraw()
-        app = App(root, db=self.db)
-        self.addCleanup(app.close)
-        app.preview()
-        self.assertIsNotNone(app.plan)
-        app.request.set("1번 PC에 Java 설치해 줘")
-        self.assertIsNone(app.plan)
-        self.assertEqual(str(app.run_button["state"]), "disabled")
-        app.preview()
-        self.assertIsNone(app.plan)
-
-    def test_ui_confirm_execute_and_reload(self):
-        import tkinter as tk
-        from app import App
-        from installone.tk_runtime import prepare_tk
-        prepare_tk()
-        root = tk.Tk()
-        root.withdraw()
-        app = App(root, db=self.db)
-        self.addCleanup(app.close)
-        app.request.set("1번, 2번 PC에 Python 실습환경 설치해 줘")
-        app.preview()
-        with patch("app.messagebox.askyesno", return_value=False):
-            app.run()
-        self.assertEqual(app.store.history(), [])
-        with patch("app.messagebox.askyesno", return_value=True):
-            app.run()
-        deadline = time.monotonic() + 5
-        while app.busy and time.monotonic() < deadline:
-            root.update()
-            time.sleep(0.02)
-        self.assertFalse(app.busy)
-        self.assertEqual(len(app.table.get_children()), 2)
-        self.assertEqual([r["status"] for r in Store(self.db).history()], ["mock_verified", "connection_failed"])
 
 
 if __name__ == "__main__":

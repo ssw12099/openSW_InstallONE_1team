@@ -1,5 +1,4 @@
 """입력 경계와 SQL 작업 이력. 외부 프로그램을 실행하지 않는 영역."""
-import json
 import re
 import sqlite3
 import uuid

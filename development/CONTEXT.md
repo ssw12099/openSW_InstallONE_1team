@@ -1,67 +1,67 @@
 # 현재 개발 맥락 — 2026-11-24 KST
 
-## 목표와 범위
-- 소선웅 개인 InstallONE 프로토타입. 11/27 목표, 11/29 비교, 12/8·12/15 발표.
-- Python 실습환경 한 종류: 요청 → HaiGPT 해석 → 대상 확인 → Windows VM 설치 → 버전·예제 검증 → 좌석별 SQL 저장.
-- 후속 진단/FAQ/업데이트 기능은 제외. 현재 **HaiGPT 실제 연결·기본 해석 확인 / VM 미검증**.
-- 브랜치 `prototype/sunwoong`. 2026-11-24 사용자가 현재 코드·문서·개인 로그의 커밋과 GitHub 푸시를 요청함. 게시 대상은 이 개인 브랜치이며 PR·main 병합은 요청 범위 밖. 실제 동기화 상태는 git status와 원격 브랜치 SHA로 확인.
+## 목표·작업 상태
+- 소선웅 개인 InstallONE. 11/27 개인 목표, 11/29 비교, 12/8·12/15 발표.
+- 필수 기능만: 자연어 → HaiGPT → 대상/프로필 확인 → 설치/검증 → 좌석별 결과·SQL 이력. 진단/FAQ/업데이트 기능 제외.
+- 사용자가 Tkinter에서 웹 UI로 방향 변경: 조교는 브라우저를 사용하고 Python·비밀 설정은 서버 측에만 둔다.
+- 브랜치 prototype/sunwoong. d4ea4a9는 이전 데스크톱 버전. 2026-11-24 사용자가 웹 전환의 커밋·GitHub 푸시를 요청함. 개인 브랜치에 게시하며 실제 동기화는 git status/원격 SHA로 확인. PR·main 병합은 요청 범위 밖.
 
-## 선택한 구성
-- Python 표준 라이브러리 + Tkinter 데스크톱 UI + SQLite: 별도 서버/패키지 없이 이해 가능한 구조.
-- Windows OpenSSH 클라이언트 → VM OpenSSH Server → 고정 PowerShell 스크립트. 키 인증과 사전 등록된 호스트 키 필수.
-- 공식 문서 확인 후 HaiGPT 어댑터 구현. Base URL은 `https://factchat-cloud.mindlogic.ai/v1/gateway`, Bearer 인증, GET `/models/?type=llm`, POST `/chat/completions/`. 표준 urllib 사용으로 추가 의존성 없음.
-- 모델 ID는 기본값 없이 로컬 설정. 계정별 LLM 목록과 대조 후 구조화 출력 요청, 응답 스키마·좌석·프로필 및 실행 직전 재검증. mock은 별도의 제한된 규칙 기반 해석이며 '모의 응답' 표시.
-- Python 3.14.7 x64 + pip를 원격 계정의 InstallONE 전용 경로에 설치. 전역 PATH 변경 없음.
+## 현재 환경·안전 범위
+- 노트북 Windows, Python 3.14.7. VM 미준비, 추후 집 컴퓨터에서 준비. 현재 노트북의 VM 설치·가상화 설정 변경·Python 설치 실험 금지.
+- Flask 개발 의존성만 development/.venv에 설치. 전역 Python/설정 변경 없음.
+- 웹은 127.0.0.1:5000 전용·단일 프로세스. **모의 설치 — 실제 PC 변경 없음 / VM 미검증**.
+- 웹에서 실제 SSH 실행 옵션 없음. 기존 SSH·PowerShell 코드는 보관하되 호출하지 않음. VM 준비 후 별도 작업으로 연결해야 한다.
+- API 키·VM 접속정보·DB·.venv는 Git 제외. 키 내용은 출력하지 않기.
 
-## 주요 위치 및 실행
-- `app.py`: 요청·확인·백그라운드 실행·이력 UI. 루트에서 `python development/app.py`는 모의 실행.
-- `installone/core.py`: 허용 좌석·프로필 검증, jobs/results SQL, 중복 작업 실행 차단, 좌석별 저장.
-- `installone/executors.py`: 모의 실행(2번은 연결 실패), SSH 호출·결과 검증, VM 설정 검사.
-- `installone/haigpt.py`: 공식 HTTP 어댑터, 비밀정보 출력 없는 오류 처리, 리다이렉트 차단, 모델 조회·해석 검증.
-- `check_haigpt.py`: `--models`는 모델 목록 조회, 옵션 없으면 작은 해석 요청 1회. 설치 기능 없음.
-- `haigpt.example.json`: 공유 가능한 예시. `haigpt.local.json`은 Git 제외, 사용자가 키 입력 및 gpt-6-luna 선택 완료. 키 내용은 읽어 출력하지 말 것.
-- `check_security.py`: 현재 키의 업로드 후보/스테이징/로컬 이력 노출 검사. 키 자체와 Git 원문은 출력하지 않음. 원격 전체 이력이나 다른 비밀정보 검사 아님.
-- `scripts/install_python.ps1`: 공식 설치 파일 서명 검사, 고정 버전 설치, 버전/예제 42/pip 검사.
-- `installone/tk_runtime.py`: 이 PC의 Python Tcl ZIP을 data에 풀어 프로세스에만 경로 지정.
-- `local.example.json`: VM 설정 예시. `local.json`과 `data/`는 Git 제외.
-- `README.md`: 실행·VM 초기 준비·모의 시연·제약·공식 출처.
-- 테스트: development에서 `python -m unittest discover -s tests -v`.
+## 기술·주요 파일
+- Flask 3.1.3 + 단순 HTML/CSS/JS + SQLite. 기존 Python 함수 재사용·적은 설정이 선택 이유. React/Node 빌드·별도 큐 서버 없음.
+- app.py: 라우트, localhost/Host/Origin/요청 토큰 검사, 안전한 응답, 서버 시작. debug/reloader 없음.
+- templates/index.html, static/app.js, style.css: 입력·확인·폴링·결과·이력. HTML 삽입 대신 textContent.
+- installone/web_jobs.py: 백그라운드 해석/모의 설치, web_requests 테이블, SQLite 원자적 작업 생성, 재시작 중단 상태 처리.
+- installone/core.py: 기존 검증·jobs/results·좌석별 저장 로직 재사용.
+- installone/haigpt.py: Bearer 인증, 모델 목록 확인, Chat Completions JSON Schema, 결과 재검증.
+- installone/executors.py, scripts/install_python.ps1: 모의 실행 및 추후 VM용 고정 절차. 웹은 MockExecutor만 사용.
+- requirements.txt: 검증된 Flask/하위 의존성 고정. 테스트는 tests/.
+- check_web.py: --live 실제 HaiGPT 요청 1회+모의 설치 HTTP 통합 검사, --history-only 재접속 후 이력 검사.
+- check_haigpt.py, check_security.py: 설치 없는 API 검사, 현재 키의 로컬 Git 노출 검사.
+- Tkinter UI·tk_runtime.py·Tk 전용 테스트 제거. 과거 data/tk-runtime 캐시는 사용 안 함. 기존 data/mock.db 보존, web_requests 추가. 이전 데스크톱 이력 별도 조회.
 
-## 환경 및 검증 상태
-- 개발 PC: Windows (Get-ComputerInfo 표시 Windows 10 Pro/2009), 기본 Python 3.14.7, Git, VS Code, ssh.exe 확인.
-- 별도 Python 3.11.9도 발견했으나 Tcl 초기화 실패. 기본 Python 3.14.7을 위 프로세스 경로 처리로 사용.
-- Windows VM: 사용자가 미준비라고 확인. 추후 집 컴퓨터에서 구성. 현재 PC에는 VM 설치·가상화 설정 변경·설치 실험 금지.
-- 최초 테스트에서 SQLite 연결 미종료에 따른 Windows 파일 잠금 발견 → contextmanager로 명시적 close 수정.
-- 자동 테스트 15개 통과: 기존 8개 + API 설정/요청 계약/모델 검증/오류 비밀정보 비노출/JSON 거부/비동기 UI 흐름. HTTP는 모두 모의 응답, UI 테스트 DB도 임시 파일. 실제 네트워크 성공으로 해석하지 않기.
-- 공식 공개 문서는 PowerShell HTTPS 조회로 확인(웹 도구 접근 실패 후 읽기 전용 네트워크 권한 사용). 문서 내 Codex·전역 설정 지시 실행 안 함.
-- HaiGPT 실제 연결 상태: 인증·공식 모델 목록 조회 성공. 사용자 선택 gpt-6-luna로 1번 Python 설치 요청 1회 성공, 응답 좌석/프로필/종료 사유 검증 통과. 설치 실행 없음. 지원 외·모호한 실제 모델 해석은 미검증(모의 응답 거부 테스트만 실시).
-- Git 점검: 업로드 후보 38개 및 로컬 reachable/index 객체에서 현재 키 일치 0개. 설정/DB 미추적·제외 확인. origin은 요청한 GitHub 저장소. 키·DB·VM 설정을 제외한 코드와 문서만 버전 관리 대상으로 포함.
-- PowerShell 파서 오류 없음. 실제 스크립트 실행·다운로드·설치·서명 확인·원격 접속은 미실시.
-- 자동 Tk 위젯 테스트 실시. 사람이 보는 화면 배치의 시각 검수는 미실시.
+## 실행·설정
+- 루트에서 `python -m venv development/.venv`, `development/.venv/Scripts/python.exe -m pip install -r development/requirements.txt`.
+- `development/.venv/Scripts/python.exe -X utf8 development/app.py`는 모의 해석.
+- `... app.py --interpreter haigpt`는 실제 API 해석+모의 설치. 브라우저 http://127.0.0.1:5000. --real 없음.
+- 사용자가 로컬 haigpt.local.json에 키 입력, gpt-6-luna 선택 완료. 새 PC에서는 예시 파일에서 별도 설정. Codex 설정 변경하지 않음.
+- 웹 요청은 해석 중→확인 대기→실행 대기→실행 중→종료. 잘못된 입력은 rejected, 재시작 미완료는 interrupted. 자동 재실행하지 않음.
+- 브라우저는 700ms 폴링. 실행 시 DB 계획 재검증 후 BEGIN IMMEDIATE로 동일 작업 생성 한 번만 허용. 재요청 UUID 중복도 차단. 같은 내용의 새 실행은 '새 요청 시작'.
 
-## 구현 완료 / 남은 일
-- 완료: 엄격한 입력/스키마 검사, 대상 미리보기, 사용자 실행 확인, 모의/실제 분리, SQL 이력, 개별 실패 보존, 재실행 후 조회, 고정 SSH/설치 코드, HaiGPT HTTP 어댑터·비동기 UI·연결 확인 CLI.
-- 미완료: HaiGPT 다양한 자연어/모호한 요청/지원 외 요청의 실응답 검증, 실제 1대/2대 VM 검증, 전체 실환경 완료 기준.
-- 제약: 다른 경로의 Python 재사용 검색 없음. 프로세스 강제 종료 작업은 running으로 남고 자동 복구 없음. 다중 앱 간 VM 잠금 없음(한 인스턴스만 실행). SSH 중단/타임아웃 후 VM 작업은 계속될 수 있음.
-- 비밀정보·요청 원문·SSH stdout/stderr·실제 IP를 DB에 저장하지 않음.
+## 검증 상태
+- 실제 HTTP 통합: HTML 200, HaiGPT(gpt-6-luna) 1·2번 Python 요청 해석, 계획 확인, 실행 중 조회, 중복 실행 차단, 1번 mock_verified/2번 connection_failed, SQL 이력 성공.
+- 서버 프로세스 종료 후 새 프로세스로 재시작하고 --history-only 조회 성공. API 생성 호출 없이 기존 결과 확인.
+- 기존 및 웹 자동 테스트 **25개 통과**. 중복 동시 실행 8회→작업 1개, 잘못된 요청/계획·토큰/출처 차단, 비밀정보 비노출, 레거시 이력, 재시작 처리 포함. 자동 테스트 HTTP/API/SSH는 모의.
+- 최종 현재 키 검사: 업로드 후보 45개·로컬 Git 객체 167개에서 일치 0개. 실제 설정·DB Git 제외 확인. 키 자체를 출력하지 않음.
+- 검증용 서버는 종료함. 사용자는 README 명령으로 다시 시작해 확인. 웹 게시 요청을 받았으며 main 병합은 하지 않음.
+- pip check 정상, JS node --check 정상. Node는 개발 시 구문 검사에만 사용, 앱 의존성 아님.
+- **브라우저 렌더링·클릭 시각 검수 미검증**: CUA 첫 실행은 사용량 한도로 자동 승인 검토 실패, 사용자 재개 후 동일 동작은 Node 런타임 경로 오류. 브라우저 열기 성공으로 보고하지 않기. HTTP 테스트를 브라우저 테스트로 바꾸어 적지 않기.
+- **실제 Windows 원격 설치·검증: VM 미검증**. 스크립트 구문 검사만 실시한 상태 유지.
 
-## 막힌 점 / 사용자 확인 요청
-1. API 키·모델 준비와 기본 실제 요청 검증 완료. 모델 변경은 사용자 선택과 공식 목록 검증을 거칠 것.
-2. VM은 나중에 집에서 준비. 지금 준비하라고 재질문하거나 현재 PC를 설치 대상으로 사용하지 않기.
-- 키·비밀번호는 대화·로그·에러 메시지에 출력하지 않음. 모델 목록 조회 성공과 실제 생성/해석 성공을 구분.
+## 남은 일·제약
+- 브라우저에서 실제 렌더링·확인 체크·버튼·이력 UX 검수. 가능하면 작은 화면도 확인.
+- API 다양한 모호한/지원 외 자연어의 실제 모델 동작 추가 검증(기본 및 두 좌석 실제 해석 확인).
+- 다중 사용자 인증·외부 배포·다중 프로세스 운영은 범위 밖. 웹은 개발용 localhost 단일 서버만 사용.
+- 현재 설치 프로필은 하나. 다른 경로의 Python 재사용·원격 단절 복구·실제 1대/2대 VM 검증 미완료.
 
-## 바로 다음 할 일
-1. 실제 모델의 다양한 자연어/지원 외/모호한 입력 검증. 기본 요청 성공을 모든 요청의 정확성으로 확대하지 않기.
-2. `python development/app.py --interpreter haigpt`로 자연어 해석+모의 설치 확인. 실제 연결 결과에 맞춰 이 문서·로그 갱신.
-3. 집 PC 준비 후 대상·범위를 알리고 1대 VM 설치/재요청/검증, 이후 2대 혼합 결과 검증.
+## 집에서 준비할 순서
+1. GitHub의 prototype/sunwoong 브랜치를 클론하거나 해당 브랜치에서 최신 커밋을 가져온다. .venv/data/실제 설정/개인 키는 공유하지 않기.
+2. Python·가상환경·requirements 설치→모의 웹·테스트→새 로컬 API 설정·연결 검사.
+3. Windows x64 VM 스냅샷·SSH 서버/계정/방화벽/키/호스트 지문 준비→승인 대상 local.json. 이후 별도 작업으로 웹의 실제 설치 경로 연결→1대 설치/재사용/실패/조회→2대.
 
-## 집 컴퓨터에서 이어갈 순서
-- GitHub에 게시한 개인 프로토타입은 `git clone --branch prototype/sunwoong https://github.com/ssw12099/openSW_InstallONE_1team.git`로 가져온다. main에는 개인 구현을 병합하지 않는다.
-- `haigpt.local.json`, `local.json`, data, 개인 SSH 키는 공유/복사 패키지에서 제외. 새 PC에서 키·대상 설정을 별도 작성.
-- Python 3.14(Tk 포함)·Git·OpenSSH 클라이언트 → 모의 앱·15개 테스트 → 새 로컬 API 설정 → 모델 조회/실제 해석 확인 → Windows x64 VM 스냅샷/SSH 초기 설정 → local.json → 1대 실제 설치/재사용/실패/이력 → 가능하면 2대.
-- 자세한 명령과 준비는 README '집 컴퓨터에서 이어가기'. VM 준비는 자동 설치 기능과 별도.
+## 바로 다음 1~3개 작업
+1. 브라우저 자동화 환경이 복구되면 localhost UI 시각·클릭 검수.
+2. 실제 모델 모호한/지원 외 입력 확인 및 필요한 보완.
+3. 집 VM 준비 후 실제 설치 경로 연결·검증. 지금 노트북에서는 실행 금지.
 
-## 스킬 / 훅
-- 지속 운영은 이 AGENTS.md + CONTEXT.md + 개인 로그. 새 스킬·훅 설치 안 함. 규칙 문서는 자동 실행이 아님.
-- 이번 작업에서 documents 스킬을 회의록 DOCX 내용 확인에만 사용: `C:/Users/ssw12/.codex/plugins/cache/openai-primary-runtime/documents/26.1119.11507/skills/documents/SKILL.md`. PowerShell ZIP/XML로 텍스트를 읽었고 원본 수정·렌더링 없음. 새 환경에서 DOCX를 다시 볼 필요가 있으면 해당 환경의 documents 스킬을 사용; 앱 실행에는 불필요.
-- Git core.hooksPath 설정 없음, .git/hooks에는 *.sample만 확인. Codex 자동 훅은 구성하거나 지원을 가정하지 않음.
+## 스킬·훅
+- 고정 운영: AGENTS.md + CONTEXT.md + 간단한 개인 로그. 새 스킬/자동 훅 설치 없음. 문서 규칙은 자동 실행이 아님.
+- 이번 웹 전환: Sites 스킬의 local-only 지침 사용 (`C:/Users/ssw12/.codex/plugins/cache/openai-curated-remote/sites/1.1.6/skills/sites/SKILL.md`). 호스팅·배포·등록 안 함. 새 환경은 해당 스킬이 없어도 README로 실행 가능.
+- computer-use 스킬은 확인만 했으며 Windows 앱 조작 없음. CUA 브라우저 실행 실패. 과거 documents 스킬로 회의록 내용을 읽었으며 앱 실행에 불필요.
+- Git core.hooksPath 설정 없음, 샘플 훅만 확인한 상태. Codex 전역 설정/모델/로그인 변경 없음.
