@@ -1,0 +1,10 @@
+local.json
+haigpt.local.json
+haigpt.local.json.*
+.haigpt.local.json.*
+local.json.*
+.local.json.*
+data/
+__pycache__/
+*.pyc
+.venv/

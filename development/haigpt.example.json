@@ -1,0 +1,7 @@
+{
+  "base_url": "https://factchat-cloud.mindlogic.ai/v1/gateway",
+  "api_key": "",
+  "model": "",
+  "timeout_seconds": 45,
+  "max_tokens": 1024
+}

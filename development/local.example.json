@@ -1,0 +1,12 @@
+{
+  "seats": {
+    "1": {
+      "host": "192.0.2.10",
+      "port": 22,
+      "user": "labuser",
+      "identity_file": "C:/Users/YOUR_NAME/.ssh/installone_vm",
+      "known_hosts": "C:/Users/YOUR_NAME/.ssh/known_hosts",
+      "approved_test_vm": false
+    }
+  }
+}
