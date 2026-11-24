@@ -1,0 +1,25 @@
+# Common exclusions; each prototype may add development/.gitignore.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+*.log
+*.db
+*.db-*
+*.sqlite*
+*.pem
+*.key
+*.vdi
+*.vmdk
+*.vhd
+*.vhdx
+*.iso
+*.ova
+*.exe
+*.msi
+.DS_Store
+Thumbs.db
