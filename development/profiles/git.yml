@@ -1,0 +1,10 @@
+id: git
+name: Git
+description: 버전 관리 도구 Git (과제 제출·협업 실습용)
+keywords: [git, 깃, github, 깃허브, 버전 관리]
+choco:
+  - name: git
+checks:
+  - label: Git
+    command: git --version
+    expect: git version

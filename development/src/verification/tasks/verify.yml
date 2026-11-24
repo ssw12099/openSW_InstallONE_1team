@@ -1,0 +1,45 @@
+# 설치 후 검증 단계 (installer/playbooks/install.yml이 불러갑니다)
+# 작업 이름의 "[검증]" 머리말로 서버가 실패 단계를 구분합니다.
+# 이름을 바꾸면 src/installer/events.py의 CHECK_TASK / SEAT_CHECK_TASK도 같이 바꾸세요.
+
+# 프로필의 점검 명령 실행 (예: python --version). 출력에 expect가 있어야 통과.
+# cmd /c ... 2>&1 로 감싸서 java -version처럼 stderr로 출력하는 명령도 같은 방식으로 읽습니다.
+- name: "[검증] 점검 명령 실행"
+  ansible.windows.win_shell: |
+    {{ refresh_path }}
+    $out = cmd /c "{{ item.command }} 2>&1"
+    $code = $LASTEXITCODE
+    $out
+    exit $code
+  loop: "{{ checks }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: check_result
+  changed_when: false
+  failed_when: >-
+    check_result.rc != 0 or
+    (item.expect | default('', true)) not in check_result.stdout
+
+- name: "[검증] 작업 폴더 준비"
+  ansible.windows.win_file:
+    path: "{{ workdir }}"
+    state: directory
+  when: run_seat_check | bool
+
+- name: "[검증] 검증 스크립트 복사"
+  ansible.windows.win_copy:
+    src: "{{ seat_check_src }}"
+    dest: "{{ workdir }}\\seat_check.py"
+  when: run_seat_check | bool
+
+# 설치된 Python으로 환경 정보 수집 + 예제 실행 (결과는 JSON 한 줄)
+- name: "[검증] 버전·예제 확인"
+  ansible.windows.win_shell: |
+    {{ refresh_path }}
+    $out = cmd /c "python {{ workdir }}\seat_check.py --examples={{ examples | join(',') }} --imports={{ imports | join(',') }} 2>&1"
+    $code = $LASTEXITCODE
+    $out
+    exit $code
+  register: seat_check_result
+  changed_when: false
+  when: run_seat_check | bool

@@ -1,0 +1,20 @@
+# 좌석 목록
+#   mode: real → 실제 Windows VM에 WinRM으로 설치 (host에 VM 주소 필요)
+#   mode: mock → 흐름 확인용 모의 좌석. 화면과 기록에 '모의'로 표시됩니다.
+#   mock_result: 모의 좌석이 낼 결과 (success / already_installed / connect_failed / install_failed / verify_failed)
+# 실제 좌석의 접속 계정은 .env의 INSTALLONE_WINRM_USER / INSTALLONE_WINRM_PASSWORD 에서 읽습니다.
+seats:
+  - number: 1
+    name: PC-01
+    mode: mock        # VM이 준비되면 → mode: real, host: VM의 IP 주소
+  - number: 2
+    name: PC-02
+    mode: mock
+  - number: 3
+    name: PC-03
+    mode: mock
+    mock_result: install_failed     # 실패 표시 확인용 (모의)
+  - number: 4
+    name: PC-04
+    mode: mock
+    mock_result: already_installed  # 이미 설치된 좌석 표시 확인용 (모의)

@@ -1,0 +1,10 @@
+id: vscode
+name: VS Code
+description: 코드 편집기 Visual Studio Code
+keywords: [vscode, vs code, 비주얼 스튜디오 코드, 비주얼스튜디오 코드, 코드 편집기]
+choco:
+  - name: vscode
+checks:
+  - label: VS Code
+    command: code --version
+    expect: ""

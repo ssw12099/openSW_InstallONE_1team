@@ -1,0 +1,17 @@
+# 설치 프로필: 설치할 프로그램·버전·검증 조건
+# AI는 이 id 중에서만 고릅니다. 설치 명령을 새로 만들지 않습니다.
+id: python-basic
+name: Python 기본 실습환경
+description: Python 3.12와 pip로 기초 프로그래밍 실습을 하는 환경
+keywords: [python, 파이썬, 기초 프로그래밍]
+choco:
+  - name: python312
+    version: "3.12.10"
+checks:
+  - label: Python
+    command: python --version
+    expect: Python 3.12
+  - label: pip
+    command: python -m pip --version
+    expect: pip
+examples: [hello]

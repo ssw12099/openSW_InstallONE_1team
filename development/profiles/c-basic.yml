@@ -1,0 +1,10 @@
+id: c-basic
+name: C 실습환경
+description: MinGW-w64(gcc)로 C 프로그래밍 실습을 하는 환경
+keywords: [c언어, c 언어, c 프로그래밍, c프로그래밍, gcc, mingw]
+choco:
+  - name: mingw
+checks:
+  - label: gcc
+    command: gcc --version
+    expect: gcc
