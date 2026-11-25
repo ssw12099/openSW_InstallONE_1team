@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 from app import create_app
+from installone.web_jobs import Conflict
 from installone.core import Plan, Store
 
 
@@ -64,6 +65,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.execute(task).status_code,202)
         result=self.wait(task,('finished',))
         self.assertEqual([r['status'] for r in result['results']],['mock_verified','connection_failed'])
+        self.assertEqual(result['summary'],{'total':2,'completed':2,'percent':100,'success':1,'failed':1,'needs_review':0})
         self.app.extensions['jobs'].close()
         other=create_app(self.path,delay=0)
         try:
@@ -142,6 +144,14 @@ class WebTests(unittest.TestCase):
             task=other.extensions['jobs'].get('unfinished')
             self.assertEqual(task['state'],'interrupted')
             self.assertEqual(task['results'][0]['status'],'interrupted')
+            self.assertEqual(task['summary']['needs_review'],1)
+            client=other.test_client()
+            headers={'X-InstallONE-Token':other.extensions['request_token']}
+            new=client.post('/api/requests',json={'text':'1번 PC에 Python 실습환경 설치해 줘','request_key':str(uuid.uuid4())},headers=headers).get_json()['id']
+            deadline=time.monotonic()+4
+            while other.extensions['jobs'].get(new)['state']!='ready' and time.monotonic()<deadline:
+                time.sleep(.01)
+            self.assertEqual(client.post('/api/requests/'+new+'/execute',json={'confirmed':True},headers=headers).status_code,202)
         finally:
             other.extensions['jobs'].close()
 
@@ -154,7 +164,78 @@ class WebTests(unittest.TestCase):
         data=self.client.get('/api/history',headers=self.headers).get_json()
         self.assertEqual(len(data['legacy_results']),1)
         self.assertEqual(data['legacy_results'][0]['id'],old)
+        self.assertEqual(data['legacy_results'][0]['summary']['success'],1)
         self.assertEqual(len(data['requests']),1)
+
+    def test_scenarios_and_registered_seats(self):
+        self.app.extensions['jobs'].close()
+        self.app=create_app(self.path, seats={'1':'reused','2':'outcome_unknown'}, delay=0)
+        self.client=self.app.test_client(); self.headers={'X-InstallONE-Token':self.app.extensions['request_token']}
+        self.addCleanup(lambda:self.app.extensions['jobs'].close())
+        task=self.submit().get_json()['id']; self.wait(task)
+        self.execute(task); result=self.wait(task,('finished',))
+        self.assertEqual([r['status'] for r in result['results']],['mock_reused','outcome_unknown'])
+        self.assertEqual(result['summary']['needs_review'],1)
+        self.assertEqual(result['summary']['success'],1)
+        self.assertIn('등록 좌석',self.client.get('/').get_data(as_text=True))
+        self.assertEqual(self.client.get('/api/status',headers=self.headers).get_json()['seats'],['1','2'])
+        self.app.extensions['jobs'].close()
+        only=create_app(self.path, seats={'1':'install_failed'}, delay=0)
+        try:
+            client=only.test_client(); headers={'X-InstallONE-Token':only.extensions['request_token']}
+            self.assertEqual(client.get('/api/status',headers=headers).get_json()['seats'],['1'])
+            self.assertIn('1번</span>',client.get('/').get_data(as_text=True))
+        finally:
+            only.extensions['jobs'].close()
+
+    def test_all_failure_scenarios_are_not_success(self):
+        for scenario in ('connection_failed','install_failed','verification_failed','outcome_unknown'):
+            with self.subTest(scenario=scenario):
+                self.app.extensions['jobs'].close()
+                self.app=create_app(self.path, seats={'1':scenario}, delay=0)
+                self.addCleanup(self.app.extensions['jobs'].close)
+                self.client=self.app.test_client();self.headers={'X-InstallONE-Token':self.app.extensions['request_token']}
+                task=self.submit('1번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+                self.wait(task);self.execute(task);result=self.wait(task,('finished',))
+                self.assertEqual(result['results'][0]['status'],scenario)
+                self.assertEqual(result['summary']['success'],0)
+                self.assertEqual(result['summary']['completed'],1)
+
+    def test_different_requests_compete_for_seat_and_retry(self):
+        jobs=self.app.extensions['jobs']; jobs.delay=.3
+        first=self.submit('1번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+        second=self.submit().get_json()['id']
+        self.wait(first); self.wait(second)
+        def attempt(task):
+            try:
+                return jobs.execute(task)
+            except Conflict:
+                return None
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes=list(pool.map(attempt,(first,second)))
+        self.assertEqual(sum(value is not None for value in outcomes),1)
+        loser=second if outcomes[0] else first
+        winner=first if outcomes[0] else second
+        self.assertEqual(self.get(loser)['state'],'ready')
+        self.assertEqual(self.get(loser)['summary']['completed'],0)
+        self.assertEqual(self.execute(loser).status_code,409)
+        self.wait(winner,('finished',))
+        self.assertEqual(self.execute(loser).status_code,202)
+        self.wait(loser,('finished',))
+        with jobs.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],2)
+
+    def test_independent_seats_run_concurrently_and_failures_release(self):
+        jobs=self.app.extensions['jobs'];jobs.delay=.3
+        first=self.submit('1번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+        second=self.submit('2번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+        self.wait(first);self.wait(second)
+        self.assertEqual(self.execute(first).status_code,202)
+        self.assertEqual(self.execute(second).status_code,202)
+        self.wait(first,('finished',));self.wait(second,('finished',))
+        third=self.submit('2번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+        self.wait(third);self.assertEqual(self.execute(third).status_code,202)
+        self.wait(third,('finished',))
 
     def test_web_has_no_ssh_execution_or_secret_response(self):
         jobs=self.app.extensions['jobs']

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from installone.settings import read_env, api_values, vm_values
+from installone.settings import read_env, api_values, vm_values, mock_seats
 
 
 class SettingsTests(unittest.TestCase):
@@ -39,3 +39,15 @@ class SettingsTests(unittest.TestCase):
         self.write('VM_TARGETS_JSON=invalid')
         with self.assertRaises(ValueError):
             vm_values(self.path)
+
+    def test_mock_seats_defaults_and_invalid_config(self):
+        self.assertEqual(mock_seats(self.path), {'1':'success','2':'connection_failed'})
+        for value in ('{}', '[]', '[{"id":"3","scenario":"success"}]',
+                      '[{"id":"1","scenario":"other"}]',
+                      '[{"id":"1","scenario":"success"},{"id":"1","scenario":"reused"}]',
+                      '[{"id":"1","scenario":"success"},{"id":"2","scenario":"reused"},{"id":"1","scenario":"success"}]'):
+            self.write('MOCK_SEATS_JSON='+value)
+            with self.assertRaises(ValueError):
+                mock_seats(self.path)
+        self.write('MOCK_SEATS_JSON=[{"id":"2","scenario":"outcome_unknown"}]')
+        self.assertEqual(mock_seats(self.path), {'2':'outcome_unknown'})

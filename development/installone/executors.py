@@ -13,10 +13,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class MockExecutor:
     """고정 모의 시나리오. 네트워크나 설치 부작용이 없다."""
+    def __init__(self, scenarios=None):
+        self.scenarios = scenarios or {"1": "success", "2": "connection_failed"}
+
     def run(self, seat):
-        if seat == "2":
-            return "connection_failed", "[모의] 2번 연결 실패 시나리오. 실제 접속 없음."
-        return "mock_verified", f"[모의] Python {VERSION}, 예제 42. 실제 설치·검증 아님."
+        scenario = self.scenarios[seat]
+        outcomes = {
+            "success": ("mock_verified", f"Python {VERSION}, 예제 42 확인 시나리오."),
+            "reused": ("mock_reused", f"기존 Python {VERSION} 설치 재사용·예제 42 확인 시나리오."),
+            "connection_failed": ("connection_failed", "연결 실패 시나리오."),
+            "install_failed": ("install_failed", "설치 실패 시나리오."),
+            "verification_failed": ("verification_failed", "검증 실패 시나리오."),
+            "outcome_unknown": ("outcome_unknown", "완료 여부 불명 시나리오. 재실행 전 상태 확인 필요."),
+        }
+        status, detail = outcomes[scenario]
+        return status, f"[모의] {detail} 실제 접속·설치·검증 없음."
 
 
 def load_targets(path=ENV_FILE):

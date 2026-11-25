@@ -8,8 +8,22 @@ from concurrent.futures import ThreadPoolExecutor
 from .core import Store, interpret, validate_plan, execute_job
 from .executors import MockExecutor
 from .haigpt import GatewayError
+from .settings import mock_seats
 
-SEATS = {"1": {}, "2": {}}
+SUCCESS = {"mock_verified", "mock_reused", "verified"}
+FAILURE = {"connection_failed", "install_failed", "verification_failed", "internal_failed"}
+REVIEW = {"outcome_unknown", "interrupted"}
+
+
+def summarize(results, plan=None):
+    total = len(plan["seats"]) if plan else len(results)
+    statuses = [r["status"] for r in results]
+    completed = sum(status in SUCCESS | FAILURE | REVIEW for status in statuses)
+    return {"total": total, "completed": completed,
+            "percent": round(100 * completed / total) if total else 0,
+            "success": sum(status in SUCCESS for status in statuses),
+            "failed": sum(status in FAILURE for status in statuses),
+            "needs_review": sum(status in REVIEW for status in statuses)}
 
 
 class Conflict(ValueError):
@@ -18,11 +32,14 @@ class Conflict(ValueError):
 
 class WebJobs:
     """HTTP와 백그라운드 작업 연결. 외부 호출 중 DB 잠금을 잡지 않는다."""
-    def __init__(self, path, mode="mock", interpreter=None, executor=None, delay=0.7):
+    def __init__(self, path, mode="mock", interpreter=None, executor=None, delay=0.7, seats=None):
         self.store = Store(path)
         self.mode = mode
+        self.seats = mock_seats() if seats is None else seats
+        if not self.seats or not set(self.seats) <= {"1", "2"}:
+            raise ValueError("모의 좌석 설정이 올바르지 않습니다.")
         self.interpreter = interpreter or interpret
-        self.executor = executor or MockExecutor()
+        self.executor = executor or MockExecutor(self.seats)
         self.delay = delay
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="installone")
         self.lock = threading.Lock()
@@ -71,8 +88,8 @@ class WebJobs:
 
     def _interpret(self, task, text):
         try:
-            plan = self.interpreter(text, SEATS, self.mode)
-            plan = validate_plan({"seats": list(plan.seats), "profile": plan.profile}, SEATS)
+            plan = self.interpreter(text, self.seats, self.mode)
+            plan = validate_plan({"seats": list(plan.seats), "profile": plan.profile}, self.seats)
             with self.store.connect() as db:
                 db.execute("UPDATE web_requests SET state='ready',plan=? WHERE id=? AND state='interpreting'",
                            (json.dumps({"seats": list(plan.seats), "profile": plan.profile}), task))
@@ -98,7 +115,13 @@ class WebJobs:
                 return row["job_id"], False
             if row["state"] != "ready":
                 raise Conflict("실행 가능한 확인 상태가 아닙니다.")
-            plan = validate_plan(json.loads(row["plan"]), SEATS)
+            plan = validate_plan(json.loads(row["plan"]), self.seats)
+            occupied = [r[0] for r in db.execute("""SELECT DISTINCT r.seat FROM results r
+                JOIN web_requests w ON w.job_id=r.job_id
+                WHERE w.state IN ('queued','running') AND r.seat IN (%s)
+                ORDER BY r.seat""" % ",".join("?" for _ in plan.seats), plan.seats)]
+            if occupied:
+                raise Conflict("실행 중인 좌석: " + ", ".join(s + "번" for s in occupied) + ". 종료 후 다시 확인하여 실행하세요.")
             job = uuid.uuid4().hex
             db.execute("INSERT INTO jobs(id,interpreter,executor,profile,state) VALUES(?,?,?,?,?)",
                        (job, row["interpreter"], "mock", plan.profile, "confirmed"))
@@ -121,6 +144,8 @@ class WebJobs:
                 db.execute("UPDATE web_requests SET state='finished' WHERE id=?", (task,))
         except Exception:
             with self.store.connect() as db:
+                db.execute("UPDATE results SET status='interrupted',detail='[모의] 작업 중단. 완료 여부를 확인하세요.' WHERE job_id=? AND status IN ('pending','running')", (job,))
+                db.execute("UPDATE jobs SET state='interrupted' WHERE id=?", (job,))
                 db.execute("UPDATE web_requests SET state='interrupted',message='작업 처리 중 오류. 결과를 확인하세요.' WHERE id=?", (task,))
 
     def get(self, task):
@@ -131,6 +156,7 @@ class WebJobs:
             result = dict(row)
             result["plan"] = json.loads(result["plan"]) if result["plan"] else None
             result["results"] = [dict(r) for r in db.execute("SELECT seat,status,detail FROM results WHERE job_id=? ORDER BY seat", (row["job_id"],))]
+            result["summary"] = summarize(result["results"], result["plan"])
             result["executor"] = "mock"
             return result
 
@@ -141,7 +167,13 @@ class WebJobs:
 
     def legacy_history(self):
         with self.store.connect() as db:
-            return [dict(row) for row in db.execute("""SELECT j.*,r.seat,r.status,r.detail
+            rows = [dict(row) for row in db.execute("""SELECT j.*,r.seat,r.status,r.detail
                 FROM jobs j JOIN results r ON j.id=r.job_id
                 WHERE NOT EXISTS (SELECT 1 FROM web_requests w WHERE w.job_id=j.id)
                 ORDER BY j.created DESC,j.rowid DESC,r.seat LIMIT 100""")]
+            groups = {}
+            for row in rows:
+                groups.setdefault(row["id"], []).append(row)
+            for row in rows:
+                row["summary"] = summarize(groups[row["id"]])
+            return rows

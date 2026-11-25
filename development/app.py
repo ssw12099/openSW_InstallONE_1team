@@ -57,11 +57,11 @@ def create_app(db_path=None, mode="mock", **worker_options):
 
     @app.get("/")
     def index():
-        return render_template("index.html", token=token, version=VERSION)
+        return render_template("index.html", token=token, version=VERSION, seats=jobs.seats)
 
     @app.get("/api/status")
     def status():
-        return jsonify(interpreter=mode, connection=jobs.connection, executor="mock", vm="VM 미검증", version=VERSION)
+        return jsonify(interpreter=mode, connection=jobs.connection, executor="mock", vm="VM 미검증", version=VERSION, seats=list(jobs.seats))
 
     @app.post("/api/requests")
     def submit():
