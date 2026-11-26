@@ -6,26 +6,40 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+import logging
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..ai import get_provider, interpret
-from ..common.catalog import load_catalog
+from ..common.catalog import CatalogError, load_catalog
 from ..common.config import UI_DIR, get_settings
+from ..installer import build_plan
 from ..storage import repository as repo
-from .jobs import submit_job
+from .jobs import SeatBusyError, close_interrupted_jobs, submit_job
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     repo.init_db()
+    closed = close_interrupted_jobs()
+    if closed:
+        log.warning("서버가 꺼지기 전에 끝나지 않은 작업을 오류로 마감했어요: %s", closed)
     yield
 
 
 app = FastAPI(title="InstallONE FR-01 프로토타입", lifespan=lifespan)
 app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
+
+
+@app.exception_handler(CatalogError)
+async def catalog_error(_: Request, exc: CatalogError) -> JSONResponse:
+    """seats.yml·프로필 파일 실수는 '서버 오류' 대신 어디가 틀렸는지 알려 줌."""
+    return JSONResponse(status_code=500, content={"detail": f"설정 파일을 확인해 주세요. {exc}"})
 
 
 class ParseRequest(BaseModel):
@@ -53,12 +67,13 @@ def catalog() -> dict:
     """좌석·프로필 목록과 AI 설정 상태 (관리 웹 첫 화면용)."""
     c = load_catalog()
     settings = get_settings()
+    plans = {pid: build_plan([pid], c.profiles) for pid in c.profiles}  # 포함한 프로필 항목까지 펼쳐서 보여 줌
     return {
         "seats": [s.model_dump(mode="json", exclude={"host"}) for s in c.seats.values()],
         "profiles": [
             {
                 "id": p.id, "name": p.name, "description": p.description, "includes": p.includes,
-                "items": [f"{x.name} {x.version}" if x.version else x.name for x in p.choco] + p.pip,
+                "items": [f"{x.name} {x.version}" if x.version else x.name for x in plans[p.id].choco] + plans[p.id].pip,
             }
             for p in c.profiles.values()
         ],
@@ -82,6 +97,8 @@ def create_job(request: JobRequest) -> dict:
     """조교가 확인한 좌석·프로필로 설치 실행."""
     try:
         job_id = submit_job(request.request_id, request.seats, request.profiles)
+    except SeatBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"job_id": job_id}

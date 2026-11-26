@@ -57,28 +57,49 @@ def build_schema(catalog: Catalog) -> dict[str, Any]:
     }
 
 
+def _seat_number(value: Any) -> int | None:
+    """정수나 숫자 문자열만 좌석 번호로 인정 (True, 2.5, '1~4' 같은 값은 거부)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 def to_parse_result(raw: dict[str, Any], catalog: Catalog, provider_name: str) -> ParseResult:
-    """AI가 준 값을 검사해서 목록 밖의 좌석·프로필은 버리고 경고를 남깁니다."""
+    """AI가 준 값을 검사해서 목록 밖의 좌석·프로필은 버리고 경고를 남깁니다.
+
+    seats·profiles가 목록이 아니면 약속한 형식이 아니므로 LLMError → 규칙 기반으로 대신합니다.
+    """
+    raw_seats, raw_profiles = raw.get("seats", []), raw.get("profiles", [])
+    if not isinstance(raw_seats, list) or not isinstance(raw_profiles, list):
+        raise LLMError("AI 응답 형식이 약속과 달라요 (좌석·프로필이 목록이 아님)")
+    raw_unsupported = raw.get("unsupported") or []
+    if not isinstance(raw_unsupported, list):
+        raw_unsupported = [raw_unsupported]
+
     warnings: list[str] = []
     seats: list[int] = []
-    for value in raw.get("seats") or []:
-        try:
-            number = int(value)
-        except (TypeError, ValueError):
+    for value in raw_seats:
+        number = _seat_number(value)
+        if number is None:
             warnings.append(f"AI가 준 좌석 값 '{value}'를 읽을 수 없어 뺐어요.")
-            continue
-        if number not in catalog.seats:
+        elif number not in catalog.seats:
             warnings.append(f"등록되지 않은 좌석 {number}번은 뺐어요.")
         elif number not in seats:
             seats.append(number)
 
-    unsupported = [str(u) for u in raw.get("unsupported") or [] if str(u).strip()]
+    unsupported = [str(u) for u in raw_unsupported if isinstance(u, (str, int)) and str(u).strip()]
     picked: list[str] = []
-    for pid in raw.get("profiles") or []:
-        if pid in catalog.profiles:
+    for pid in raw_profiles:
+        if not isinstance(pid, str):
+            warnings.append(f"AI가 준 프로필 값 '{pid}'를 읽을 수 없어 뺐어요.")
+        elif pid in catalog.profiles:
             picked.append(pid)
         else:
-            unsupported.append(str(pid))
+            unsupported.append(pid)
     profiles = drop_included(picked, catalog)
 
     if not seats:
@@ -93,7 +114,7 @@ def to_parse_result(raw: dict[str, Any], catalog: Catalog, provider_name: str) -
         seats=sorted(seats),
         profiles=profiles,
         unsupported=unsupported,
-        reason=str(raw.get("reason") or "").strip()[:300],
+        reason=raw["reason"].strip()[:300] if isinstance(raw.get("reason"), str) else "",
         parser="ai",
         provider=provider_name,
         warnings=warnings,

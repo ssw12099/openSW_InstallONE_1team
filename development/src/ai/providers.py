@@ -50,10 +50,15 @@ class OpenAICompatibleProvider:
         self.chat_path = "/" + chat_path.lstrip("/")
         self.temperature = temperature
         self.last_call: dict[str, Any] = {}  # 마지막 호출의 모델·걸린 시간·크레딧 (점검 도구용)
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), headers=headers, timeout=timeout, transport=transport
-        )
+        self._base_url = base_url.rstrip("/")
+        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._timeout = timeout
+        self._transport = transport
+
+    def _new_client(self) -> httpx.Client:
+        """호출마다 열고 닫아서 연결이 쌓이지 않게 함 (요청마다 provider를 새로 만들기 때문)."""
+        return httpx.Client(base_url=self._base_url, headers=self._headers,
+                            timeout=self._timeout, transport=self._transport)
 
     def _check_status(self, response: httpx.Response) -> None:
         status = response.status_code
@@ -91,7 +96,8 @@ class OpenAICompatibleProvider:
                 payload["response_format"] = response_format
             started = time.perf_counter()
             try:
-                response = self._client.post(self.chat_path, json=payload)
+                with self._new_client() as client:
+                    response = client.post(self.chat_path, json=payload)
             except httpx.TimeoutException as exc:
                 raise LLMError(f"{self.name} 응답 시간 초과") from exc
             except httpx.HTTPError as exc:
@@ -120,7 +126,8 @@ class OpenAICompatibleProvider:
         """쓸 수 있는 모델 ID 목록 (키·주소가 맞는지 확인하는 데도 씁니다)."""
         path = "/models/" if self.chat_path.endswith("/") else "/models"
         try:
-            response = self._client.get(path, params={"type": kind})
+            with self._new_client() as client:
+                response = client.get(path, params={"type": kind})
         except httpx.HTTPError as exc:
             raise LLMError(f"{self.name} 연결 실패 ({exc.__class__.__name__})") from exc
         self._check_status(response)

@@ -11,7 +11,7 @@ import argparse
 import sys
 import time
 
-from ..common.catalog import load_catalog
+from ..common.catalog import CatalogError, load_catalog
 from ..common.config import get_settings
 from . import get_provider, interpret
 from .providers import LLMError
@@ -56,7 +56,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {'*' if model == settings.llm_model else '-'} {model}")
         return 0
 
-    catalog = load_catalog()
+    try:
+        catalog = load_catalog()
+    except CatalogError as exc:
+        print(f"설정 파일을 확인해 주세요. {exc}")
+        return 1
     sentences = [" ".join(args.text)] if args.text else EXAMPLES
     fallbacks = 0
     for text in sentences:

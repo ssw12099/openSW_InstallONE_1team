@@ -1,7 +1,7 @@
 """규칙 기반 요청 해석.
 
 AI를 못 쓰거나 AI가 실패했을 때의 안전망이고, AI 결과를 교차 확인하는 데도 씁니다.
-좌석: "1번부터 4번", "1~4번", "2, 3번", "PC3", "전체 PC"
+좌석: "1번부터 4번", "1~4번", "2, 3번", "PC3", "전체 PC", "3번 빼고"
 도구: 프로필 YAML의 keywords
 """
 from __future__ import annotations
@@ -29,6 +29,15 @@ _PC_PREFIX = re.compile(r"pc\s*-?\s*(\d{1,3})", re.I)
 _ALL = re.compile(r"전체|모든\s*(?:pc|좌석|자리|컴퓨터)|전\s*좌석", re.I)
 _SEAT_MARK = re.compile(r"번|pc|좌석|자리|까지", re.I)
 
+# "3번 빼고", "1, 2번 PC는 제외하고", "1~4번 말고": 이 번호들은 대상에서 뺍니다.
+_NUM_OR_RANGE = r"\d{1,3}\s*번?(?:\s*(?:부터|~|∼|〜|-|–|—)\s*\d{1,3}\s*번?(?:\s*까지)?)?"
+_EXCLUDE = re.compile(
+    rf"({_NUM_OR_RANGE}(?:\s*(?:,|，|、|/|와|과|및|이랑|랑|하고)\s*{_NUM_OR_RANGE})*)"
+    r"\s*(?:pc|좌석|자리)?\s*(?:은|는|만|을|를)?\s*(?:빼고|제외|말고)",
+    re.I,
+)
+_EXCLUDE_NUMS = re.compile(r"(\d{1,3})(?:\s*번?\s*(?:부터|~|∼|〜|-|–|—)\s*(\d{1,3}))?")
+
 # 아직 프로필이 없는 도구: 요청에 나오면 '지원하지 않음'으로 알려 줍니다.
 KNOWN_UNSUPPORTED = {
     "node": "Node.js", "노드": "Node.js", "docker": "Docker", "도커": "Docker",
@@ -36,6 +45,7 @@ KNOWN_UNSUPPORTED = {
     "android studio": "Android Studio", "안드로이드 스튜디오": "Android Studio",
     "unity": "Unity", "유니티": "Unity", "mysql": "MySQL", "jupyter": "Jupyter", "주피터": "Jupyter",
     "anaconda": "Anaconda", "아나콘다": "Anaconda", "visual studio 20": "Visual Studio",
+    "c++": "C++", "cpp": "C++", "씨쁠쁠": "C++", "c#": "C#", "씨샵": "C#",
 }
 # '자바스크립트'가 Java 프로필로 잡히지 않게 따로 처리
 _JAVASCRIPT = re.compile(r"자바\s*스크립트|java\s*script", re.I)
@@ -79,6 +89,17 @@ def extract_seats(text: str, catalog: Catalog) -> tuple[list[int], list[str], li
     evidence: list[str] = []
     warnings: list[str] = []
 
+    # 뺄 좌석을 먼저 찾아서 지워 둠 (안 지우면 아래에서 대상 좌석으로 잡힘)
+    excluded: set[int] = set()
+    exclude_phrases: list[str] = []
+    for m in _EXCLUDE.finditer(cleaned):
+        for n in _EXCLUDE_NUMS.finditer(m.group(1)):
+            a, b = int(n.group(1)), int(n.group(2) or n.group(1))
+            if abs(b - a) <= 200:
+                excluded.update(range(min(a, b), max(a, b) + 1))
+        exclude_phrases.append(m.group(0).strip())
+    cleaned = _EXCLUDE.sub(" ", cleaned)
+
     if _ALL.search(cleaned):
         found.update(catalog.seats)
         evidence.append(_ALL.search(cleaned).group(0))
@@ -102,6 +123,13 @@ def extract_seats(text: str, catalog: Catalog) -> tuple[list[int], list[str], li
     for m in _PC_PREFIX.finditer(cleaned):
         found.add(int(m.group(1)))
         evidence.append(m.group(0).strip())
+
+    if exclude_phrases:
+        if not found:  # "3번 빼고 설치해 줘" → 나머지 전체
+            found.update(catalog.seats)
+            evidence.insert(0, "전체")
+        found -= excluded
+        evidence[0] = f"{evidence[0]} (단, {', '.join(exclude_phrases)})"
 
     missing = sorted(n for n in found if n not in catalog.seats)
     if missing:

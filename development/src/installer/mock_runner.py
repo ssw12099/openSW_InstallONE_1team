@@ -15,10 +15,8 @@ from ..verification import evaluate, seat_check
 
 MOCK = "(모의)"
 
-# 점검 명령별 정상 출력 예시
+# 점검 명령별 정상 출력 예시 (Python·pip은 프로필에 적힌 버전을 따라감: fake_outputs 참고)
 FAKE_OUTPUTS = {
-    "Python": "Python 3.12.10",
-    "pip": "pip 25.0.1 from C:\\Python312\\Lib\\site-packages\\pip (python 3.12)",
     "Java": 'openjdk version "21.0.5" 2024-10-15 LTS',
     "javac": "javac 21.0.5",
     "gcc": "gcc.exe (x86_64-posix-seh-rev0, Built by MinGW-W64 project) 13.2.0",
@@ -30,6 +28,25 @@ WRONG_OUTPUTS = {"Python": "Python 3.11.9", "Java": 'openjdk version "17.0.13" 2
 FAKE_IMPORT_VERSIONS = {"numpy": "2.3.5", "pandas": "2.3.3", "matplotlib": "3.10.7"}
 
 
+def python_version(plan: InstallPlan) -> str:
+    """계획에 있는 Python 패키지 버전. 프로필 버전을 바꾸면 모의 결과도 같이 바뀌게 함."""
+    for package in plan.choco:
+        if package.name.lower().startswith("python") and package.version:
+            return package.version
+    return "3.12.10"
+
+
+def fake_outputs(plan: InstallPlan) -> dict[str, str]:
+    version = python_version(plan)
+    short = ".".join(version.split(".")[:2])
+    folder = "Python" + short.replace(".", "")
+    return {
+        **FAKE_OUTPUTS,
+        "Python": f"Python {version}",
+        "pip": f"pip 25.0.1 from C:\\{folder}\\Lib\\site-packages\\pip (python {short})",
+    }
+
+
 def fake_seat_check(plan: InstallPlan) -> dict:
     examples = {}
     for name in plan.examples:
@@ -39,7 +56,7 @@ def fake_seat_check(plan: InstallPlan) -> dict:
             result = {"ok": True, "output": f"{name} ok: rows=5, y_sum=55" if name == "data" else f"{name} ok", "expect": expect}
         examples[name] = result
     imports = {name: {"ok": True, "version": FAKE_IMPORT_VERSIONS.get(name, "1.0")} for name in plan.imports}
-    return {"python": "3.12.10", "pip": "25.0.1", "imports": imports, "examples": examples, "ok": True}
+    return {"python": python_version(plan), "pip": "25.0.1", "imports": imports, "examples": examples, "ok": True}
 
 
 def run_mock_seat(seat: Seat, plan: InstallPlan, reporter: Reporter, speed: float | None = None) -> None:
@@ -87,6 +104,7 @@ def run_mock_seat(seat: Seat, plan: InstallPlan, reporter: Reporter, speed: floa
     # 3) 검증
     reporter.stage(n, Stage.VERIFY)
     versions: dict[str, str] = {}
+    outputs = fake_outputs(plan)
     for index, check in enumerate(plan.checks):
         log(Stage.VERIFY, "start", "[검증] 점검 명령 실행", detail=check.label)
         pause(0.4)
@@ -100,7 +118,7 @@ def run_mock_seat(seat: Seat, plan: InstallPlan, reporter: Reporter, speed: floa
             log(Stage.VERIFY, "failed", "[검증] 점검 명령 실행", False, message)
             reporter.finish(n, SeatStatus.VERIFY_FAILED, versions=versions, message=message)
             return
-        output = FAKE_OUTPUTS.get(check.label, f"{check.label} ok")
+        output = outputs.get(check.label, f"{check.label} ok")
         versions[check.label] = evaluate.version_text(output)
         log(Stage.VERIFY, "ok", "[검증] 점검 명령 실행", detail=f"{check.label}: {output}")
 

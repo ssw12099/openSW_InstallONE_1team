@@ -29,6 +29,13 @@ def catalog():
         ("1번이랑 4번에 깃 깔아줘", [1, 4], ["git"]),
         ("1-2번 좌석에 pandas", [1, 2], ["python-data"]),
         ("파이썬 데이터 분석 환경 5번", [5], ["python-data"]),  # python-data가 python-basic을 포함
+        # 뺄 좌석 ("빼고", "제외", "말고")
+        ("1~4번 중 3번 빼고 파이썬", [1, 2, 4], ["python-basic"]),
+        ("3번 빼고 전부 깃 설치", [1, 2, 4, 5], ["git"]),
+        ("1, 2번 PC는 제외하고 자바", [3, 4, 5], ["java-basic"]),
+        ("3번 말고 4번에 깃", [4], ["git"]),
+        ("1번부터 4번 말고 5번에 깃", [5], ["git"]),
+        ("전체 PC 중 2번 자리는 빼고 VS Code", [1, 3, 4, 5], ["vscode"]),
     ],
 )
 def test_rules(catalog, text, seats, profiles):
@@ -36,6 +43,17 @@ def test_rules(catalog, text, seats, profiles):
     assert result.parser == "rules"
     assert result.seats == seats
     assert result.profiles == profiles
+
+
+def test_excluded_seats_show_in_reason(catalog):
+    result = interpret("1~4번 중 3번 빼고 파이썬", catalog)
+    assert "3번 빼고" in result.reason and "1, 2, 4번" in result.reason
+
+
+def test_cpp_and_csharp_are_reported_as_unsupported(catalog):
+    assert interpret("C++ 실습 환경 2번", catalog).unsupported == ["C++"]
+    result = interpret("3번 자리 C# 설치", catalog)
+    assert result.unsupported == ["C#"] and result.profiles == []
 
 
 def test_rules_warn_unknown_seat_and_tool(catalog):
@@ -110,6 +128,38 @@ def test_ai_failure_uses_rules(catalog):
     assert result.parser == "rules"
     assert result.seats == [1, 2, 3, 4]
     assert "AI 해석에 실패" in result.warnings[0]
+
+
+@pytest.mark.parametrize("content", [
+    {"seats": 3, "profiles": ["git"], "unsupported": [], "reason": "x"},
+    {"seats": [1], "profiles": "git", "unsupported": [], "reason": "x"},
+    {"seats": "1~4", "profiles": ["git"], "unsupported": [], "reason": "x"},
+])
+def test_ai_answer_in_wrong_shape_falls_back_to_rules(catalog, content):
+    result = interpret("1번에 깃 설치", catalog, make_provider(lambda request: chat_response(content)))
+    assert result.parser == "rules" and result.seats == [1] and result.profiles == ["git"]
+    assert "AI 해석에 실패" in result.warnings[0]
+
+
+def test_ai_odd_values_are_skipped_without_crashing(catalog):
+    content = {"seats": [1, "2", True, 2.5, None], "profiles": ["git", {"id": "vscode"}, None],
+               "unsupported": "Node.js", "reason": ["목록"]}
+    result = interpret("1, 2번에 깃", catalog, make_provider(lambda request: chat_response(content)))
+    assert result.parser == "ai" and result.seats == [1, 2] and result.profiles == ["git"]
+    assert result.unsupported == ["Node.js"] and result.reason == ""
+    assert sum("읽을 수 없어" in w for w in result.warnings) == 5  # True, 2.5, None / dict, None
+
+
+def test_unexpected_error_in_ai_step_still_uses_rules(catalog, monkeypatch):
+    import src.ai as ai
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("예상 못 한 오류")
+
+    monkeypatch.setattr(ai, "parse_with_llm", broken)
+    result = interpret("1번에 깃", catalog, make_provider(lambda request: chat_response({})))
+    assert result.parser == "rules" and result.seats == [1]
+    assert "처리하지 못해서" in result.warnings[0]
 
 
 def test_ai_auth_error_message_has_no_key(catalog):

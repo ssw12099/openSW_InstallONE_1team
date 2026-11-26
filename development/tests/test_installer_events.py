@@ -61,6 +61,19 @@ def test_unreachable_is_connect_failure():
     assert "5985" in final["message"]
 
 
+def test_connect_failure_gets_a_korean_hint():
+    def unreachable(msg):
+        return feed(SeatTracker(1), ("runner_on_unreachable", "[연결] 좌석 접속 확인",
+                                     {"msg": msg, "unreachable": True}, {}))["message"]
+
+    refused = unreachable("ntlm: HTTPConnectionPool(host='192.168.56.101', port=5985): Max retries exceeded "
+                          "with url: /wsman (Caused by NewConnectionError: [Errno 111] Connection refused)")
+    assert "VM 주소·전원·네트워크" in refused and "Connection refused" in refused  # 원문도 남김
+    wrong_password = unreachable("ntlm: the specified credentials were rejected by the server")
+    assert "계정 이름이나 비밀번호" in wrong_password
+    assert unreachable("뭔가 다른 오류") == "좌석에 접속할 수 없어요: 뭔가 다른 오류"
+
+
 def test_install_failure_names_failed_package():
     res = {"results": [{"item": {"name": "python312"}, "failed": True,
                         "msg": "Error installing package 'python312'"}]}

@@ -2,17 +2,7 @@ id: python-data
 name: Python 데이터 분석 실습환경
 description: Python 기본 환경에 numpy, pandas, matplotlib를 더한 데이터 분석 실습 환경
 keywords: [데이터 분석, 데이터분석, 데이터 과학, pandas, 판다스, numpy, 넘파이, matplotlib]
-includes: [python-basic]
-choco:
-  - name: python312
-    version: "3.12.10"
+includes: [python-basic]   # Python 설치·점검·hello 예제는 python-basic에서 가져옴
 pip: [numpy, pandas, matplotlib]
-checks:
-  - label: Python
-    command: python --version
-    expect: Python 3.12
-  - label: pip
-    command: python -m pip --version
-    expect: pip
-examples: [hello, data]
+examples: [data]
 imports: [numpy, pandas, matplotlib]

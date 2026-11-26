@@ -56,6 +56,16 @@ def item_failed(item: dict[str, Any]) -> bool:
     return bool(item.get("unreachable")) or "exception" in item
 
 
+def connect_hint(detail: Any) -> str:
+    """접속 실패 원문(영어)에서 흔한 원인을 골라 한국어로 짧게 안내합니다. 원문은 뒤에 그대로 붙입니다."""
+    text = str(detail or "").lower()
+    if "credentials were rejected" in text or "code 401" in text:
+        return "계정 이름이나 비밀번호가 맞지 않아요. .env의 INSTALLONE_WINRM_USER·PASSWORD를 확인해 주세요"
+    if any(word in text for word in ("refused", "timed out", "timeout", "no route", "max retries", "unreachable")):
+        return "WinRM 5985 포트에 접속하지 못했어요. VM 주소·전원·네트워크를 확인해 주세요"
+    return ""
+
+
 def failure_message(res: dict[str, Any]) -> str:
     for item in res.get("results") or []:  # 반복 작업이면 실패한 항목을 찾음
         if isinstance(item, dict) and item_failed(item):
@@ -111,7 +121,9 @@ class SeatTracker:
 
         if event_type == "runner_on_unreachable":
             self.failed_status = SeatStatus.CONNECT_FAILED
-            self.message = f"좌석에 접속할 수 없어요: {short(res.get('msg'))}"
+            hint = connect_hint(res.get("msg"))
+            original = short(res.get("msg"))
+            self.message = f"좌석에 접속할 수 없어요. {hint} ({original})" if hint else f"좌석에 접속할 수 없어요: {original}"
             return self._event(Stage.CONNECT, "unreachable", task, False, self.message)
 
         if event_type == "runner_on_skipped":

@@ -6,10 +6,10 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from ..common.config import DB_SCHEMA_FILE, get_settings
-from ..common.models import ParseResult, Seat, SeatEvent, SeatStatus
+from ..common.models import ParseResult, Seat, SeatEvent, SeatStatus, Stage
 
 _write_lock = threading.Lock()  # 여러 좌석 스레드가 동시에 쓸 때 순서를 맞춤
 
@@ -61,6 +61,11 @@ def create_request(text: str, result: ParseResult) -> int:
         return int(cur.lastrowid)
 
 
+def request_exists(request_id: int) -> bool:
+    with _db() as conn:
+        return conn.execute("SELECT 1 FROM requests WHERE id = ?", (request_id,)).fetchone() is not None
+
+
 # ── 작업 ─────────────────────────────────────────────
 def create_job(request_id: int | None, seats: list[Seat], profiles: list[str]) -> int:
     created = now()
@@ -84,6 +89,25 @@ def set_job_status(job_id: int, status: str) -> None:
             conn.execute(f"UPDATE jobs SET status = ?, {column} = ? WHERE id = ?", (status, now(), job_id))
         else:
             conn.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+
+
+def close_interrupted(message: str, exclude: Iterable[int] = ()) -> list[int]:
+    """'대기·진행 중'으로 남은 작업(서버가 도중에 꺼진 경우)과 그 좌석들을 오류로 마감합니다."""
+    skip = set(exclude)
+    with _db(write=True) as conn:
+        rows = conn.execute("SELECT id FROM jobs WHERE status IN ('queued', 'running')").fetchall()
+        ids = [row["id"] for row in rows if row["id"] not in skip]
+        if not ids:
+            return []
+        stamp, marks = now(), ", ".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE seat_results SET status = ?, stage = ?, message = ?, finished_at = ?"
+            f" WHERE job_id IN ({marks}) AND status IN (?, ?)",
+            (SeatStatus.ERROR.value, Stage.DONE.value, message, stamp, *ids,
+             SeatStatus.PENDING.value, SeatStatus.RUNNING.value),
+        )
+        conn.execute(f"UPDATE jobs SET status = 'error', finished_at = ? WHERE id IN ({marks})", (stamp, *ids))
+    return ids
 
 
 def update_seat(job_id: int, seat_no: int, **fields: Any) -> None:
