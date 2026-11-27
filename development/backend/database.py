@@ -193,3 +193,41 @@ def get_job_detail(job_id):
 
     finally:
         conn.close()
+
+def update_pc_info(pc_id, ip_address, os_name, status):
+    conn = get_connection()
+
+    try:
+        conn.execute("""
+            UPDATE pcs
+            SET ip_address = ?,
+                os = ?,
+                status = ?
+            WHERE id = ?
+        """, (
+            ip_address,
+            os_name,
+            status,
+            pc_id
+        ))
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def get_pc(pc_id):
+    conn = get_connection()
+
+    try:
+        row = conn.execute("""
+            SELECT *
+            FROM pcs
+            WHERE id = ?
+        """, (pc_id,)).fetchone()
+
+        return dict(row) if row else None
+
+    finally:
+        conn.close()

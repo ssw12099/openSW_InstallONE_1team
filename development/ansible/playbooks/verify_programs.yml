@@ -1,0 +1,53 @@
+---
+- name: Verify installed development programs
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Verify Python
+      ansible.windows.win_command:
+        argv:
+          - C:\Program Files\Python311\python.exe
+          - --version
+      register: python_result
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Java
+      ansible.windows.win_command:
+        cmd: java -version
+      register: java_result
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Java compiler
+      ansible.windows.win_command:
+        cmd: javac -version
+      register: javac_result
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Git
+      ansible.windows.win_command:
+        argv:
+          - C:\Program Files\Git\cmd\git.exe
+          - --version
+      register: git_result
+      changed_when: false
+      failed_when: false
+
+    - name: Display verification summary
+      ansible.builtin.debug:
+        msg:
+          python:
+            installed: "{{ python_result.rc | default(-1) == 0 }}"
+            version: "{{ python_result.stdout | default('') | trim }}"
+          java:
+            installed: "{{ java_result.rc | default(-1) == 0 }}"
+            version: "{{ java_result.stderr | default('') | trim }}"
+          javac:
+            installed: "{{ javac_result.rc | default(-1) == 0 }}"
+            version: "{{ javac_result.stdout | default('') | trim }}"
+          git:
+            installed: "{{ git_result.rc | default(-1) == 0 }}"
+            version: "{{ git_result.stdout | default('') | trim }}"

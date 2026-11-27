@@ -3,5 +3,4 @@ uvicorn[standard]
 python-dotenv
 httpx
 pydantic
-ansible-core
 pywinrm
