@@ -29,7 +29,7 @@ InstallONE은 실습실 PC의 개발환경 설치 및 관리를
 | Frontend | React, Vite, JavaScript, CSS |
 | Backend | Python, FastAPI, Uvicorn |
 | Database | SQLite |
-| AI | HaiGPT 연동 예정, 현재 Mock 분석 |
+| AI | HaiGPT (gpt-5.4-mini), Mock 분석 |
 | 원격 연결 | WinRM, pywinrm |
 | 설치 자동화 | Ansible, WinGet |
 | 가상화 | VMware Workstation Pro |
@@ -43,7 +43,7 @@ InstallONE은 실습실 PC의 개발환경 설치 및 관리를
 flowchart TD
     A[관리자] --> B[React 웹 대시보드]
     B --> C[FastAPI Backend]
-    C --> D[자연어 요청 분석]
+    C --> D[HaiGPT 또는 Mock 자연어 분석]
     D --> E[설치 대상 및 프로그램 확인]
     E --> F[설치 승인]
     F --> G[Install Service]
@@ -65,7 +65,7 @@ flowchart TD
     P --> C
 ```
 
-현재 자연어 요청 분석은 Mock 방식으로 동작하며,
+자연어 요청 분석은 HaiGPT 실제 API 또는 Mock 방식으로 선택할 수 있으며,
 실제 원격 설치는 pywinrm 또는 Ansible을 통해 수행한다.
 
 ## 5. 프로젝트 구조
@@ -130,7 +130,13 @@ PC-02부터 PC-08까지는 논리적으로 등록된 관리 대상이다.
 - 1번부터 4번 PC에 Python 설치해 줘
 - 모든 PC에 Git 설치해 줘
 
-현재 자연어 분석은 Mock 방식으로 구현되어 있다.
+AI_MODE=real에서는 HaiGPT API를 호출하여 JSON 응답을 검증한다.
+AI_MODE=mock에서는 기존 키워드 기반 분석을 사용한다.
+
+실제 AI 분석은 등록된 PC 번호, 프로그램 허용 목록, 자료형 및 action을 검증한다.
+실제 설치 모드에서 지원하는 프로그램은 Python, Java, Git이다.
+API 오류 시 Mock으로 자동 전환하지 않는다.
+AI 분석 결과는 승인 대기 상태로 반환되며 직접 명령을 실행하지 않는다.
 
 실제 설치 모드에서는 원격 연결 대상으로 설정되지 않은
 PC에 대한 설치 요청을 차단한다.
@@ -354,6 +360,30 @@ http://localhost:5173
 
 백엔드와 프론트엔드 서버를 동시에 실행해야 한다.
 
+### 9.7 HaiGPT 실제 AI 설정
+
+발급받은 API Key와 사용 가능한 모델을 development/.env에 설정한다.
+
+```dotenv
+AI_API_KEY=
+AI_BASE_URL=https://factchat-cloud.mindlogic.ai/v1/gateway
+AI_MODEL=gpt-5.4-mini
+AI_MODE=real
+INSTALL_MODE=mock
+```
+
+API Key는 실제 발급값을 로컬에서만 입력한다. 처음에는 INSTALL_MODE=mock으로 분석을 확인하고, 실제 원격 설치 환경을 구성한 뒤 INSTALL_MODE=real로 변경한다. 환경변수 변경 후 백엔드를 재시작한다.
+
+Swagger의 GET /api/config에서 ai_mode=real, ai_configured=true를 확인하고 POST /api/analyze에 다음 요청을 입력한다.
+
+```json
+{"request": "1번 PC에 파이썬이랑 자바, 깃 설치해 줘"}
+```
+
+정상 응답은 pc_ids=[1], profiles=["python", "java", "git"], action=install, analysis_mode=real, status=pending_approval이다. 분석만으로는 실제 설치가 실행되지 않는다.
+
+Windows PowerShell에서 Python으로 한글 코드를 파이프할 경우 현재 세션의 $OutputEncoding을 UTF-8로 설정해야 할 수 있다.
+
 ## 10. 실제 원격 설치 설정
 
 ### 10.1 대상 Windows PC 준비
@@ -386,6 +416,7 @@ ANSIBLE_PYTHON_PATH=
 ```
 
 실제 IP 주소와 계정 정보는 각 개발 환경에 맞게 입력한다.
+위 예시는 Mock AI를 사용한다. 실제 AI와 실제 설치를 함께 사용하려면 9.7절의 AI 설정을 적용하고 AI_MODE=real, INSTALL_MODE=real로 설정한다.
 
 Ansible 환경 구축 및 세부 실행 방법은
 [Ansible README](ansible/README.md)를 참고한다.
@@ -420,8 +451,10 @@ PC-01의 IP 주소가 WINRM_HOST와 일치해야
 | GET | /api/pcs | 등록된 PC 목록 조회 |
 | GET | /api/config | 실행 환경 설정 조회 |
 | GET | /api/profiles | 지원 설치 프로그램 조회 |
+| POST | /api/analyze | 자연어 설치 요청 분석 |
 | POST | /api/install | 설치 작업 실행 |
 | GET | /api/jobs | 설치 작업 이력 조회 |
+| GET | /api/jobs/{job_id} | 작업 상세 조회 |
 
 전체 API 목록과 요청 형식은 Swagger에서 확인할 수 있다.
 
@@ -506,6 +539,22 @@ PC-01의 IP 주소가 WINRM_HOST와 일치해야
 | 연결 실패 로그 저장 | 성공 |
 | VM 연결 복구 후 재요청 | 성공 |
 
+### HaiGPT 실제 분석
+
+모델 목록 조회 및 API 호출 HTTP 200 확인. 조회된 모델은 69개였으며, gpt-5.4-mini의 최초 영어 요청 1회에서 응답 시간 1.48초, 입력 69토큰, 출력 20토큰(총 89토큰)을 기록하였다. 평균 성능이나 비용 측정값은 아니다.
+
+| 테스트 | 결과 |
+|---|---|
+| PC 범위 지정 | PC-01~04 추출 성공 |
+| 전체 PC 지정 | PC-01~08 추출 성공 |
+| 복합 자연어 요청 | PC-01, PC-03 및 Java, Git 추출 성공 |
+| 존재하지 않는 PC | 거부 |
+| 미지원 프로그램 | 거부 |
+| 삭제 요청 | 거부 |
+| 규칙 우회 시도 | 거부 |
+
+한글 백엔드 단독 테스트와 Swagger 분석 테스트도 성공하였다. 위 결과는 해당 사례에 한정되며 모든 규칙 우회 공격에 대한 방어를 보장하지 않는다.
+
 ## 14. 주요 실제 테스트 사례
 
 ### 작업 #21: 웹 기반 Ansible Git 신규 설치
@@ -556,6 +605,21 @@ skipped=1
 
 기존 설치 상태 및 버전 검증이 정상적으로 수행되었다.
 
+### 작업 #24: 실제 HaiGPT 기반 Ansible Git 신규 설치
+
+VM에서 Git을 제거하고 WinGet 목록, 명령 실행 실패, 실행 파일 부재를 확인하였다. 웹에서 “1번 컴퓨터에서 깃을 사용할 수 있도록 설치해 줘.”를 입력하고 분석 결과 확인 및 승인 후 실제 설치를 수행하였다.
+
+```text
+mode=real
+engine=ansible
+status=success
+version=2.56.1.windows.1
+verification=verified
+ok=4 changed=1 unreachable=0 failed=0 skipped=0
+```
+
+작업 상세 화면에서 결과와 로그를 확인하였으며, VM 내부에서도 WinGet 목록 Git 2.56.1, git --version 2.56.1.windows.1, 실행 파일 존재 여부 True를 확인하였다.
+
 ## 15. 구현 현황
 
 ### 구현 완료
@@ -565,6 +629,8 @@ skipped=1
 - SQLite 데이터베이스
 - PC 관리 대상 목록
 - Mock 자연어 요청 분석
+- HaiGPT 실제 API 연동 및 JSON 검증
+- 실제 AI 기반 Git 신규 설치 통합 검증
 - 설치 승인 절차
 - Mock 설치 시뮬레이션
 - pywinrm 실제 원격 설치
@@ -578,7 +644,6 @@ skipped=1
 
 ### 미구현 및 개선 예정
 
-- HaiGPT 실제 API 연동
 - 다중 PC 실제 원격 설치
 - 실시간 PC 연결 상태 갱신
 - 관리자 로그인 및 권한 관리
@@ -610,6 +675,8 @@ WinRM 연결에는 NTLM 인증 및 메시지 암호화를 사용한다.
 
 실습용 네트워크에서 필요한 제어 노드의 접근만 허용하도록
 방화벽을 구성한다.
+
+실제 AI 모드에서는 자연어 요청이 외부 HaiGPT API로 전달되므로 민감정보를 요청에 포함하지 않는다. 설치 승인 플래그는 관리자 인증을 대체하지 않으며 AI 검증만으로 사용자 의도의 정확성을 보장할 수 없다.
 
 현재 프로젝트는 실습용 프로토타입이며,
 실제 운영 환경에서는 추가적인 보안 및 인증 구성이 필요하다.
