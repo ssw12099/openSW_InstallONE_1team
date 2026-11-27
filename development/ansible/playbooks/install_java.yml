@@ -1,0 +1,40 @@
+---
+- name: Install Java on Windows
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Check Java installation
+      ansible.windows.win_command:
+        cmd: winget list --id EclipseAdoptium.Temurin.21.JDK --exact --source winget --accept-source-agreements
+      register: java_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Java JDK 21
+      ansible.windows.win_command:
+        cmd: winget install --id EclipseAdoptium.Temurin.21.JDK --exact --source winget --scope machine --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      register: java_install
+      when: >
+        java_check.rc != 0 or
+        'EclipseAdoptium.Temurin.21.JDK' not in java_check.stdout
+
+    - name: Verify Java version
+      ansible.windows.win_command:
+        cmd: java -version
+      register: java_version
+      changed_when: false
+
+    - name: Display Java version
+      ansible.builtin.debug:
+        msg: "{{ java_version.stderr | trim }}"
+
+    - name: Verify Java compiler
+      ansible.windows.win_command:
+        cmd: javac -version
+      register: javac_version
+      changed_when: false
+
+    - name: Display Java compiler version
+      ansible.builtin.debug:
+        msg: "{{ javac_version.stdout | trim }}"

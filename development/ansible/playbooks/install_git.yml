@@ -1,0 +1,32 @@
+---
+- name: Install Git on Windows
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Check Git installation
+      ansible.windows.win_command:
+        cmd: winget list --id Git.Git --exact --source winget --accept-source-agreements
+      register: git_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Git
+      ansible.windows.win_command:
+        cmd: winget install --id Git.Git --exact --source winget --scope machine --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      register: git_install
+      when: >
+        git_check.rc != 0 or
+        'Git.Git' not in git_check.stdout
+
+    - name: Verify Git version
+      ansible.windows.win_command:
+        argv:
+          - C:\Program Files\Git\cmd\git.exe
+          - --version
+      register: git_version
+      changed_when: false
+
+    - name: Display Git version
+      ansible.builtin.debug:
+        msg: "{{ git_version.stdout | trim }}"

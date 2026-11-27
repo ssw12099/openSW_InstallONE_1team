@@ -1,0 +1,17 @@
+---
+- name: Check Windows PC connection
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Check WinRM connection
+      ansible.windows.win_ping:
+
+    - name: Get computer hostname
+      ansible.windows.win_command: hostname
+      register: hostname_result
+      changed_when: false
+
+    - name: Display computer hostname
+      ansible.builtin.debug:
+        msg: "{{ hostname_result.stdout | trim }}"

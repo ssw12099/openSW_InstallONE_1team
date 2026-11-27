@@ -1,0 +1,32 @@
+---
+- name: Install Python on Windows
+  hosts: windows
+  gather_facts: false
+
+  tasks:
+    - name: Check Python installation
+      ansible.windows.win_command:
+        cmd: winget list --id Python.Python.3.11 --exact --source winget --accept-source-agreements
+      register: python_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Python 3.11
+      ansible.windows.win_command:
+        cmd: winget install --id Python.Python.3.11 --exact --source winget --scope machine --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      register: python_install
+      when: >
+        python_check.rc != 0 or
+        'Python.Python.3.11' not in python_check.stdout
+
+    - name: Verify Python version
+      ansible.windows.win_command:
+        argv:
+          - C:\Program Files\Python311\python.exe
+          - --version
+      register: python_version
+      changed_when: false
+
+    - name: Display Python version
+      ansible.builtin.debug:
+        msg: "{{ python_version.stdout | trim }}"
