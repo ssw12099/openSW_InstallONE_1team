@@ -1,0 +1,13 @@
+id: java-basic
+name: Java 실습환경
+description: Eclipse Temurin JDK 21로 Java 프로그래밍 실습을 하는 환경
+keywords: [java, 자바, jdk]
+choco:
+  - name: temurin21
+checks:
+  - label: Java
+    command: java -version
+    expect: "21"
+  - label: javac
+    command: javac -version
+    expect: javac 21

@@ -1,0 +1,5 @@
+# 실제 좌석(Windows VM)에 설치할 때만 필요. Linux/WSL2에서 설치하세요 (Ansible은 Windows에서 직접 안 돌아감).
+# ansible 패키지에 ansible.windows, chocolatey.chocolatey 컬렉션이 들어 있습니다.
+ansible>=10
+ansible-runner>=2.4
+pywinrm>=0.4.0

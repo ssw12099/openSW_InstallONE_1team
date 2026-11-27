@@ -1,0 +1,20 @@
+# 설치 프로필: 설치할 프로그램·버전·검증 조건
+# AI는 이 id 중에서만 고릅니다. 설치 명령을 새로 만들지 않습니다.
+#
+# Python 버전을 바꿀 때는 choco의 name·version 두 줄만 고치세요 (예: python314, "3.14.7").
+# 아래 점검(expect)은 &python_version 값을 그대로 쓰고, python-data도 이 프로필을 포함해서 같이 바뀝니다.
+id: python-basic
+name: Python 기본 실습환경
+description: Python과 pip로 기초 프로그래밍 실습을 하는 환경
+keywords: [python, 파이썬, 기초 프로그래밍]
+choco:
+  - name: python312
+    version: &python_version "3.12.10"
+checks:
+  - label: Python
+    command: python --version
+    expect: *python_version
+  - label: pip
+    command: python -m pip --version
+    expect: pip
+examples: [hello]

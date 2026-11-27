@@ -1,0 +1,199 @@
+# InstallONE FR-01 프로토타입 (강건우)
+
+조교가 "1번부터 4번 PC에 Python 실습환경 설치해 줘"처럼 요청하면, 대상 좌석과 설치 프로필을 해석하고,
+조교가 확인한 뒤 Windows 좌석에 Ansible로 설치해서 좌석별 설치 버전과 예제 실행 결과를 보여 줍니다.
+
+> 실제 VM에서 테스트하려면 **[VM_TEST.md](VM_TEST.md)** 를 보세요. 모의 좌석으로 바로 실행해 보려면 아래 1번.
+
+## 현재 상태 (2026-11-27)
+
+| 항목 | 상태 |
+|---|---|
+| 자연어 해석: 규칙 기반 ("3번 빼고" 같은 제외 표현 포함) | 구현, 테스트 통과 |
+| 자연어 해석: AI (HAI-GPT·Groq·Ollama, OpenAI 호환 방식) | 구현. **HAI-GPT 실제 호출 확인** (gemini-3.5-flash-lite, 문장당 약 1초, 예시 4개 모두 맞게 해석) |
+| 해석 결과 확인 후 실행 | 구현 |
+| 모의 좌석 전체 흐름 | 구현, 테스트 통과 |
+| 실제 좌석 설치 (Ansible + WinRM + Chocolatey) | 구현. **실제 Windows VM에서 확인** (python-basic, 아래 '실제 VM 결과') |
+| 실패 단계 구분 (연결·설치·검증), 이미 설치됨 | 구현, 테스트 통과 |
+| 좌석별 버전·예제 결과, 실행 기록 저장 (SQLite) | 구현 |
+| 같은 좌석 중복 실행 막기, 서버 재시작 시 멈춘 작업 마감 | 구현, 테스트 통과 |
+| seats.yml·프로필 파일 실수 안내 (어느 파일·몇 번째 줄인지) | 구현, 테스트 통과 |
+
+위 표의 '테스트 통과'는 **모의 좌석 또는 로컬 테스트** 결과입니다. 실제 VM 결과는 아래 표에 따로 적습니다.
+
+### 실제 VM 결과 (2026-11-27)
+
+[VM_TEST.md](VM_TEST.md) 순서대로 실제 Windows VM 한 대(1번 좌석)에서 확인했습니다. 2~4번은 모의 좌석으로 둔 상태입니다.
+
+| 확인 항목 (VM_TEST.md) | 결과 |
+|---|---|
+| 환경 | 관리 PC: Windows 11 Home + WSL2 Ubuntu 26.04 (서버·Ansible). 좌석: VirtualBox 7.2.22 VM, Windows 11 Enterprise 평가판 26H2, CPU 1개·RAM 8GB, 같은 PC의 호스트 전용 네트워크 |
+| 7번 포트 확인·win_ping | 통과 (`pong`) |
+| 8-1 "1번 PC에 Python 실습환경 설치해 줘" | **성공**: Python 3.12.10, pip 25.0.1, 예제 `hello ok: avg=84.0, squares_sum=55` (규칙 기반 해석, 7분 43초) |
+| 8-2 같은 요청 한 번 더 | **이미 설치됨**: python312 그대로, 검증만 함 (1분 44초) |
+| 8-3 VM을 끄고 같은 요청 | **연결 실패**: "WinRM 5985 포트에 접속하지 못했어요" 안내 (4초) |
+| 아직 확인 안 함 | AI 해석(HAI-GPT)으로 실제 좌석 실행, 실제 좌석 여러 대 동시 설치, python-basic 외 프로필, 관리 PC와 좌석이 다른 컴퓨터인 구성 |
+
+근거: [개발 로그 2026-11-27](../docs/devlogs/강건우/2026-11-27.md) (화면 캡처, 실행 기록)
+
+## 흐름
+
+1. 관리 웹에 요청 문장 입력
+2. 요청 해석 (`src/ai`): AI가 **등록된 좌석 번호와 프로필 id 중에서만** 고름 → 서버가 다시 검사. AI가 꺼져 있거나 실패하면 규칙 기반 해석
+3. 조교가 해석 결과(좌석·프로필)를 확인하고 고친 뒤 설치 실행
+4. 설치 (`src/installer`): 실제 좌석은 ansible-runner로 플레이북 실행, 모의 좌석은 같은 단계를 흉내 냄
+5. 검증 (`src/verification`): 좌석에서 점검 명령(`python --version` 등)과 검증 스크립트(예제 실행) 실행
+6. 결과·기록 저장 (`src/storage`) → 좌석 배치도와 결과 표에 표시
+
+AI는 설치 명령을 직접 만들지 않습니다. 실제로 실행되는 내용은 `profiles/`에 미리 적어 둔 것뿐입니다.
+
+## 폴더 구조 (팀 구상도 기준)
+
+```
+development/
+├─ src/
+│  ├─ ui/            [개발 A] 입력·확인·결과 화면 (HTML 한 장 + JS, 빌드 도구 없음)
+│  ├─ ai/            [개발 A] 요청 해석: 규칙 기반 + AI(HaiGPT 등)
+│  ├─ installer/     [개발 B] Windows 설치 실행: 플레이북, ansible-runner 실행기, 모의 실행기, WinRM 설정 스크립트
+│  ├─ verification/  [개발 C] 설치 버전·예제 검증: 좌석 검증 스크립트, 판정
+│  ├─ storage/       [개발 C] DB 저장·조회 (SQLite)
+│  ├─ app/           [통합] FastAPI 서버, 작업 실행 관리
+│  ├─ common/        [공동] 데이터 형식(models.py), 설정, 좌석 목록(seats.yml)
+│  └─ features/      이후 선택 기능 자리
+├─ profiles/         설치 프로필: 설치할 프로그램·버전·검증 조건
+├─ db/schema.sql     DB 테이블 구조
+├─ tests/            테스트
+└─ runtime/          실행 중 생기는 DB·로그 (Git 제외)
+```
+
+선정되면 `development/` 안의 내용을 저장소 루트로 옮기면 구상도와 같은 구조가 됩니다.
+
+## 1. 빠르게 실행하기 (모의 좌석, Windows에서 바로)
+
+Python 3.10 이상이 필요합니다.
+
+```powershell
+cd development
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m src.app
+```
+
+(`activate` 없이 가상환경의 python을 바로 부르는 방식이라 PowerShell 실행 정책에 막히지 않습니다.)
+
+브라우저에서 http://127.0.0.1:8000 을 열고, 예시 문장을 누른 뒤 **해석하기** → **설치 실행**을 누르세요.
+기본 `src/common/seats.yml`은 4좌석 모두 모의 좌석이고, 화면 확인용으로 3번은 설치 실패, 4번은 이미 설치됨이 나오게 해 두었습니다.
+
+## 2. AI 해석 켜기 (HAI-GPT)
+
+한림대 HAI-GPT API Gateway를 씁니다. OpenAI 호환 방식이고, 호출할 때마다 모델별 토큰 단가만큼 크레딧이 차감됩니다.
+
+1. HAI-GPT 대시보드 → API Gateway → API 키에서 키를 만들고 복사 (키 전체는 만든 직후 한 번만 보임)
+2. `.env.example`을 `.env`로 복사하고 두 줄만 채움
+   ```
+   LLM_PROVIDER=haigpt
+   LLM_API_KEY=(복사한 키)
+   ```
+   주소(`https://factchat-cloud.mindlogic.ai/v1/gateway`)와 모델(`gemini-3.5-flash-lite`)은 기본값이 들어갑니다.
+   다른 모델을 쓰려면 대시보드 '모델' 탭의 ID를 `LLM_MODEL`에 적으세요.
+3. 연결 점검 (서버를 켜지 않고 터미널에서)
+   ```powershell
+   .\.venv\Scripts\python -m src.ai.check --models   # 키·주소가 맞으면 쓸 수 있는 모델 목록이 나옴
+   .\.venv\Scripts\python -m src.ai.check            # 예시 문장 4개를 AI로 해석해 봄
+   .\.venv\Scripts\python -m src.ai.check "4번 자리에 전공 기초 C 수업 준비해 줘"
+   ```
+4. 서버를 다시 켜면 오른쪽 위에 "AI 해석 켜짐 (haigpt)"이 보임
+
+- AI 응답에서 등록되지 않은 좌석·프로필은 버리고 경고로 알려 줍니다.
+- 규칙 기반 해석과 좌석·프로필이 다르면 실행 전에 확인하라는 경고가 뜹니다.
+- AI 호출이 실패하면(연결·인증·크레딧·한도) 규칙 기반 해석으로 대신하고 이유를 화면에 보여 줍니다.
+- 응답 형식은 JSON 스키마 강제 → JSON 모드 → 형식 지정 없음 순서로, 모델이 받아 주는 방식을 찾아 씁니다.
+- 다른 무료 선택지: Groq(`LLM_PROVIDER=groq` + 키), Ollama(`LLM_PROVIDER=ollama` + 설치한 모델 이름).
+
+API 키는 `.env`에만 넣습니다. `.env`는 Git에 올라가지 않습니다.
+
+## 3. 실제 좌석(Windows VM)에 설치하기
+
+**자세한 순서는 [VM_TEST.md](VM_TEST.md)에 따로 정리했습니다.**
+VM을 준비하는 사람에게 미리 부탁할 것, VM 프로그램별 네트워크 설정, 설치·연결 확인 명령, 확인할 것, 안 될 때 표가 들어 있습니다.
+
+필요한 환경 요약:
+- Windows PC에 **WSL2(Ubuntu)**: Ansible이 Windows에서 직접 돌아가지 않아서 서버를 WSL에서 켭니다
+- **Windows VM**: 로컬 관리자 계정, 인터넷 연결, WinRM(5985) 켜기
+- **네트워크**: WSL에서 VM 주소의 5985 포트로 접속돼야 합니다
+- 설정: 접속 계정은 `.env`의 `INSTALLONE_WINRM_USER`·`INSTALLONE_WINRM_PASSWORD`, 좌석은 `src/common/seats.yml`에서 `mode: real`과 `host`(VM 주소)
+
+## 좌석 상태
+
+| 화면 표시 | 뜻 | 판단 기준 |
+|---|---|---|
+| 성공 | 설치하고 검증까지 통과 | 모든 작업 통과, 설치 단계에서 바뀐 것 있음 |
+| 이미 설치됨 | 원래 깔려 있었고 검증 통과 | 모든 작업 통과, 설치 단계에서 바뀐 것 없음 |
+| 연결 실패 | 좌석에 접속 못 함 (WinRM 응답 없음, 계정 오류 등) | Ansible unreachable 또는 `[연결]` 작업 실패 |
+| 설치 실패 | 패키지 설치 중 오류 | `[설치]` 작업 실패 |
+| 검증 실패 | 설치는 끝났지만 버전·예제 확인 실패 | `[검증]` 작업 실패 |
+| 오류 | 서버 쪽 문제 (Ansible 없음, 접속 계정 미설정, 설치 도중 서버 종료 등) | 실행 전 점검 실패, 서버 재시작 시 끝나지 않은 작업 |
+
+설치 중인 좌석에 다른 작업을 또 실행하면 거절하고(409) 어느 작업에서 설치 중인지 알려 줍니다.
+
+플레이북 작업 이름의 머리말(`[연결]`, `[설치]`, `[검증]`)로 단계를 구분하니 이름을 바꿀 때는 `src/installer/events.py`도 같이 바꾸세요.
+좌석별 실행 기록은 `job_events` 테이블에 모두 남아서 2순위(업데이트 장애 분석)에서 그대로 쓸 수 있습니다.
+
+## 설치 프로필 추가
+
+`profiles/`에 YAML 파일 하나를 추가하면 다음 요청부터 반영됩니다 (서버 재시작 필요 없음).
+
+```yaml
+id: java-basic                # AI가 고르는 이름 (영문)
+name: Java 실습환경
+description: Eclipse Temurin JDK 21로 Java 프로그래밍 실습을 하는 환경   # AI가 읽고 고르는 설명
+keywords: [java, 자바, jdk]    # 규칙 기반 해석용 키워드
+includes: []                  # 포함할 다른 프로필 id. 그 프로필의 설치·점검 항목도 같이 들어감
+choco:                        # Chocolatey 패키지 (version 생략 시 최신)
+  - name: temurin21
+pip: []                       # 추가로 설치할 pip 패키지
+checks:                       # 좌석에서 실행할 점검 명령, 출력에 expect가 있어야 통과
+  - label: Java
+    command: java -version
+    expect: "21"
+  - label: javac
+    command: javac -version
+    expect: javac 21
+examples: []                  # verification/seat_check.py의 예제 이름
+imports: []                   # import 되는지 확인할 패키지
+```
+
+**Python 버전 바꾸기**: `profiles/python-basic.yml`의 두 줄만 고칩니다 (예: `name: python314`, `version: "3.14.7"`).
+점검 기준은 같은 값을 쓰고, `python-data`는 `python-basic`을 포함하므로 같이 바뀝니다.
+버전을 정하기 전에 Chocolatey에 그 버전이 있는지 확인하세요 (https://community.chocolatey.org/packages/python314 처럼 `python3XX` 패키지).
+
+## 테스트
+
+```bash
+python -m pytest
+```
+
+규칙 해석, AI 응답 검증·폴백(형식이 틀린 AI 응답 포함), 설정 파일 실수 안내, 이벤트 → 상태 분류, 검증 스크립트,
+API 전체 흐름(모의 좌석, 같은 좌석 중복 실행, 서버 재시작)을 확인합니다.
+ansible-runner가 설치된 환경(WSL2)에서는 로컬 플레이북으로 **실제 Ansible 이벤트 흐름**까지 확인하고, 없으면 그 테스트만 건너뜁니다.
+
+## 모듈끼리 주고받는 데이터
+
+| 보내는 쪽 → 받는 쪽 | 형식 (`src/common/models.py`) |
+|---|---|
+| ai → app | `ParseResult` (좌석 번호, 프로필 id, 지원 안 되는 도구, 근거, 경고) |
+| app → installer | `InstallPlan` (Chocolatey·pip 패키지, 점검 명령, 예제, import 목록) |
+| installer → app/storage | `Reporter`의 `stage` / `event(SeatEvent)` / `finish(상태, 버전, 예제 결과, 메시지)` |
+| 좌석 → verification | 검증 스크립트가 출력하는 `INSTALLONE_RESULT {JSON}` 한 줄 |
+
+## 알려진 한계와 다음 작업
+
+- 실제 Windows VM은 python-basic 한 프로필만 확인 (2026-11-27, 위 '실제 VM 결과'). 다른 프로필과 실제 좌석 여러 대 동시 설치는 미확인
+- 모델별 해석 품질 비교는 아직 안 함 (기본 모델 gemini-3.5-flash-lite로 예시 4개 정상)
+- 프로필의 Chocolatey 패키지 중 python312 3.12.10은 실제 VM 설치까지 확인 (2026-11-27).
+  temurin21, mingw, git, vscode는 VM에서 실제 설치로 확인 필요
+- 팀 공통 조건으로 Python 버전을 정하면 `profiles/python-basic.yml` 두 줄을 바꿈 (설치 프로필 추가 절 참고)
+- 좌석 접속 계정은 모든 좌석이 하나를 같이 씀 (실습실 공용 관리자 계정 기준)
+- WinRM은 HTTP(5985) + NTLM: 실습용 내부망 기준입니다. 실제 운영이라면 HTTPS 리스너를 권장합니다.
+- 같은 좌석 중복 실행은 서버 하나 안에서만 막습니다 (서버를 여러 개 띄우는 경우는 고려하지 않음)
+- 관리 웹에 로그인이 없어서 서버는 기본으로 이 PC(127.0.0.1)에서만 열립니다

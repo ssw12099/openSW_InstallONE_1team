@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>InstallONE 실습실 개발환경 설치</title>
+  <link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">InstallONE</span>
+      <span class="brand-sub">실습실 개발환경 자동 설치</span>
+    </div>
+    <div class="ai-state" id="ai-state" role="status">AI 상태 확인 중</div>
+  </header>
+
+  <main class="layout">
+    <section class="room" aria-labelledby="room-title">
+      <div class="room-head">
+        <h1 id="room-title">실습실 좌석</h1>
+        <p class="room-job" id="room-job">아직 실행한 설치가 없어요.</p>
+      </div>
+      <div class="desk" aria-hidden="true">교탁</div>
+      <ol class="seat-map" id="seat-map" aria-live="polite"></ol>
+      <p class="legend">
+        <span><i class="dot mode-real"></i>실제: Windows VM에 원격 설치</span>
+        <span><i class="dot mode-mock"></i>모의: 흐름 확인용, 실제로 설치하지 않음</span>
+      </p>
+    </section>
+
+    <section class="panel" aria-label="설치 요청">
+      <form id="parse-form" class="step" novalidate>
+        <h2><span class="step-no">1</span>설치 요청</h2>
+        <label for="request-text" class="field-label">어느 좌석에 무엇을 설치할지 적어 주세요</label>
+        <textarea id="request-text" rows="3" maxlength="500"
+          placeholder="1번부터 4번 PC에 Python 실습환경 설치해 줘"></textarea>
+        <div class="examples" id="examples" aria-label="예시 문장"></div>
+        <div class="actions">
+          <button type="submit" id="parse-btn" class="btn">해석하기</button>
+          <p class="error" id="parse-error" role="alert"></p>
+        </div>
+      </form>
+
+      <div class="step" id="confirm-step" hidden>
+        <h2><span class="step-no">2</span>해석 결과 확인</h2>
+        <p class="parser" id="parser-line"></p>
+        <p class="reason" id="reason"></p>
+        <ul class="warnings" id="warnings"></ul>
+        <fieldset>
+          <legend>대상 좌석</legend>
+          <div class="seat-picks" id="seat-picks"></div>
+        </fieldset>
+        <fieldset>
+          <legend>설치 프로필</legend>
+          <div class="profile-picks" id="profile-picks"></div>
+        </fieldset>
+        <div class="actions">
+          <button type="button" id="run-btn" class="btn btn-primary" disabled>설치 실행</button>
+          <p class="error" id="run-error" role="alert"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="results" id="results" aria-labelledby="results-title" hidden>
+      <div class="results-head">
+        <h2 id="results-title"><span class="step-no">3</span>좌석별 결과</h2>
+        <p class="summary" id="summary" aria-live="polite"></p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">좌석</th>
+              <th scope="col">상태</th>
+              <th scope="col">설치 버전</th>
+              <th scope="col">예제 실행 결과</th>
+              <th scope="col">메시지</th>
+              <th scope="col"><span class="sr-only">실행 기록</span></th>
+            </tr>
+          </thead>
+          <tbody id="result-rows"></tbody>
+        </table>
+      </div>
+      <div class="log" id="log-box" hidden>
+        <div class="log-head">
+          <h3 id="log-title">실행 기록</h3>
+          <button type="button" class="link-btn" id="log-close">닫기</button>
+        </div>
+        <pre id="log"></pre>
+      </div>
+    </section>
+
+    <section class="history" aria-labelledby="history-title">
+      <h2 id="history-title">설치 이력</h2>
+      <ul id="history"></ul>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>
