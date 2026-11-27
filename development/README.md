@@ -5,7 +5,7 @@
 
 > 실제 VM에서 테스트하려면 **[VM_TEST.md](VM_TEST.md)** 를 보세요. 모의 좌석으로 바로 실행해 보려면 아래 1번.
 
-## 현재 상태 (2026-11-26)
+## 현재 상태 (2026-11-27)
 
 | 항목 | 상태 |
 |---|---|
@@ -13,13 +13,28 @@
 | 자연어 해석: AI (HAI-GPT·Groq·Ollama, OpenAI 호환 방식) | 구현. **HAI-GPT 실제 호출 확인** (gemini-3.5-flash-lite, 문장당 약 1초, 예시 4개 모두 맞게 해석) |
 | 해석 결과 확인 후 실행 | 구현 |
 | 모의 좌석 전체 흐름 | 구현, 테스트 통과 |
-| 실제 좌석 설치 (Ansible + WinRM + Chocolatey) | 구현. **Windows VM 미검증**. 로컬 Linux에서 ansible-runner 이벤트 → 상태 분류만 확인 |
+| 실제 좌석 설치 (Ansible + WinRM + Chocolatey) | 구현. **실제 Windows VM에서 확인** (python-basic, 아래 '실제 VM 결과') |
 | 실패 단계 구분 (연결·설치·검증), 이미 설치됨 | 구현, 테스트 통과 |
 | 좌석별 버전·예제 결과, 실행 기록 저장 (SQLite) | 구현 |
 | 같은 좌석 중복 실행 막기, 서버 재시작 시 멈춘 작업 마감 | 구현, 테스트 통과 |
 | seats.yml·프로필 파일 실수 안내 (어느 파일·몇 번째 줄인지) | 구현, 테스트 통과 |
 
-지금까지의 결과는 모두 **모의 좌석 또는 로컬 테스트**입니다. 실제 VM 결과는 검증 후 이 표에 따로 적습니다.
+위 표의 '테스트 통과'는 **모의 좌석 또는 로컬 테스트** 결과입니다. 실제 VM 결과는 아래 표에 따로 적습니다.
+
+### 실제 VM 결과 (2026-11-27)
+
+[VM_TEST.md](VM_TEST.md) 순서대로 실제 Windows VM 한 대(1번 좌석)에서 확인했습니다. 2~4번은 모의 좌석으로 둔 상태입니다.
+
+| 확인 항목 (VM_TEST.md) | 결과 |
+|---|---|
+| 환경 | 관리 PC: Windows 11 Home + WSL2 Ubuntu 26.04 (서버·Ansible). 좌석: VirtualBox 7.2.22 VM, Windows 11 Enterprise 평가판 26H2, CPU 1개·RAM 8GB, 같은 PC의 호스트 전용 네트워크 |
+| 7번 포트 확인·win_ping | 통과 (`pong`) |
+| 8-1 "1번 PC에 Python 실습환경 설치해 줘" | **성공**: Python 3.12.10, pip 25.0.1, 예제 `hello ok: avg=84.0, squares_sum=55` (규칙 기반 해석, 7분 43초) |
+| 8-2 같은 요청 한 번 더 | **이미 설치됨**: python312 그대로, 검증만 함 (1분 44초) |
+| 8-3 VM을 끄고 같은 요청 | **연결 실패**: "WinRM 5985 포트에 접속하지 못했어요" 안내 (4초) |
+| 아직 확인 안 함 | AI 해석(HAI-GPT)으로 실제 좌석 실행, 실제 좌석 여러 대 동시 설치, python-basic 외 프로필, 관리 PC와 좌석이 다른 컴퓨터인 구성 |
+
+근거: [개발 로그 2026-11-27](../docs/devlogs/강건우/2026-11-27.md) (화면 캡처, 실행 기록)
 
 ## 흐름
 
@@ -173,10 +188,10 @@ ansible-runner가 설치된 환경(WSL2)에서는 로컬 플레이북으로 **�
 
 ## 알려진 한계와 다음 작업
 
-- Windows VM에서 실제 설치 미검증 → [VM_TEST.md](VM_TEST.md) 순서로 확인 후 위 표에 기입
+- 실제 Windows VM은 python-basic 한 프로필만 확인 (2026-11-27, 위 '실제 VM 결과'). 다른 프로필과 실제 좌석 여러 대 동시 설치는 미확인
 - 모델별 해석 품질 비교는 아직 안 함 (기본 모델 gemini-3.5-flash-lite로 예시 4개 정상)
-- 프로필의 Chocolatey 패키지(python312 3.12.10, temurin21, mingw, git, vscode)는 VM에서 실제 설치로 확인 필요.
-  python312 3.12.10이 Chocolatey 저장소에 있는 것까지만 확인함
+- 프로필의 Chocolatey 패키지 중 python312 3.12.10은 실제 VM 설치까지 확인 (2026-11-27).
+  temurin21, mingw, git, vscode는 VM에서 실제 설치로 확인 필요
 - 팀 공통 조건으로 Python 버전을 정하면 `profiles/python-basic.yml` 두 줄을 바꿈 (설치 프로필 추가 절 참고)
 - 좌석 접속 계정은 모든 좌석이 하나를 같이 씀 (실습실 공용 관리자 계정 기준)
 - WinRM은 HTTP(5985) + NTLM: 실습용 내부망 기준입니다. 실제 운영이라면 HTTPS 리스너를 권장합니다.
