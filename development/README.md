@@ -2,8 +2,7 @@
 
 조교가 브라우저에서 실습환경 설치를 요청하고, 대상을 확인한 뒤 좌석별 결과와 이력을 조회하는 프로토타입입니다. 개인 목표 2026-11-27, 비교·선정 11-29, 발표 12-08·12-15.
 
-**HaiGPT 실제 연결·HTTP 해석 확인 / 모의 설치 — 실제 PC 변경 없음 / VM 미검증.**
-Windows VM은 아직 없으며 집 컴퓨터에서 나중에 준비합니다. 현재 노트북에 VM·가상화 설정·Python 설치 실험을 하지 않습니다. 앱 개발 의존성은 프로젝트 `.venv`에만 설치합니다.
+**기본값은 모의 해석·모의 설치입니다.** 2026-11-27 KST에 승인 VM `INSTALLONE-PC01` 한 대에서 SSHExecutor의 실제 설치와 재사용을 검증했습니다. 메인 PC에는 설치 실험을 하지 않았습니다.
 
 ## 실행
 
@@ -23,16 +22,24 @@ development/.venv/Scripts/python.exe -X utf8 development/app.py
 development/.venv/Scripts/python.exe -X utf8 development/app.py --interpreter haigpt
 ```
 
-설치는 두 모드 모두 **모의 설치**입니다. 웹 서버에는 `--real` 옵션이 없으며 SSH 실행을 호출하지 않습니다. `127.0.0.1:5000`만 사용하고 디버거·자동 재로더는 켜지 않습니다. 포트가 사용 중이면 기존 서버를 확인하세요. 같은 DB를 여러 서버에서 열거나 외부에 공개하지 않습니다.
+설치 기본값은 두 해석 모드 모두 **모의 설치**입니다. 실제 설치는 승인 VM 한 대의 `VM_TARGETS_JSON`을 로컬 `development/.env`에 설정한 뒤 서버를 종료하고 다음처럼 **명시적으로** 시작합니다.
+
+```powershell
+development/.venv/Scripts/python.exe -X utf8 development/app.py --executor real
+```
+
+해석은 위 명령에서도 기본 모의 응답입니다. `--interpreter haigpt --executor real`을 함께 지정할 수 있지만 실제 API 호출이 필요할 때만 사용하세요. 실설치 모드는 서버 시작 시 대상 IP·승인 표시·SSH 개인 키와 known_hosts 경로를 검증하고 한 좌석만 허용합니다. 브라우저에 대상 IP, Python 3.14.7 x64 + pip, 계정 전용 설치 폴더, 버전·예제 42·pip 검증, 전역 PATH 유지 범위를 보여 줍니다. 확인 체크 후에도 마지막 확인 대화상자에서 실제 실행을 승인해야 합니다. 서버는 브라우저가 보낸 임의 대상·명령을 받지 않고 저장된 계획·설치 모드·승인 VM 설정의 지문을 다시 검사합니다. 확인 뒤 설정이 바뀌면 새 요청이 필요합니다.
+
+`127.0.0.1:5000`만 사용하고 디버거·자동 재로더는 켜지 않습니다. 포트가 사용 중이면 기존 서버를 확인하세요. 같은 DB를 여러 서버에서 열거나 외부에 공개하지 않습니다.
 
 ## 시연 순서
 
 1. `1번, 2번 PC에 Python 실습환경 설치해 줘`를 입력하고 **요청 해석하기**를 누릅니다.
 2. 해석 중에도 화면에서 상태를 조회합니다. 실제 HaiGPT와 모의 응답 여부는 상단에 별도로 표시됩니다.
-3. 대상 좌석, Python 3.14.7 x64 + pip, 설치 범위와 검증 내용을 확인합니다. 확인 체크박스를 선택해야 실행 버튼이 활성화됩니다.
-4. **확인한 대상에 모의 설치**를 누릅니다. 1번은 `모의 검증 완료`, 2번은 의도한 `모의 연결 실패` 시나리오입니다. 실제 성공 결과가 아닙니다.
+3. 대상 좌석, 설치 모드, Python 3.14.7 x64 + pip, 설치 범위와 검증 내용을 확인합니다. 확인 체크박스를 선택해야 실행 버튼이 활성화됩니다.
+4. 기본 모드에서 **확인한 대상에 모의 설치**를 누릅니다. 1번은 `모의 검증 완료`, 2번은 의도한 `모의 연결 실패` 시나리오입니다. 실제 성공 결과가 아닙니다. 실설치 모드에서는 승인 VM 한 대에 한정해 브라우저 확인 대화상자를 거칩니다.
 5. 이력의 **상세 보기**로 결과를 다시 확인합니다. 서버 종료→재시작→브라우저 새로고침 후에도 저장된 결과가 남습니다.
-6. 같은 내용으로 새로운 작업을 만들려면 **새 요청 시작**을 누릅니다. 네트워크 재전송·중복 클릭은 동일 요청/동일 작업으로 처리합니다.
+6. 같은 내용으로 새로운 작업을 만들려면 **새 요청 시작**을 누릅니다. 네트워크 재전송·중복 클릭은 동일 요청/동일 작업으로 처리합니다. 모의 요청을 실설치 서버로 재시작해 실행할 수 없습니다.
 7. Java 요청, 없는 좌석, 모호한 요청이 실행되지 않는지 확인합니다. 실제 모델의 모든 문장에 대한 정확성을 보장하지는 않으므로 대상 확인은 필수입니다.
 
 모의 해석은 정해진 문장 전체를 검사합니다. 지원 문장: `1번 PC에 Python 실습환경 설치해 줘`, `1번, 2번 PC에 Python 실습환경 설치해 줘`. 범위 표현은 모의 해석에서 지원하지 않습니다. HaiGPT 실패 시 모의 응답으로 자동 대체하지 않습니다.
@@ -50,7 +57,7 @@ development/.venv/Scripts/python.exe -X utf8 development/app.py --interpreter ha
 ```text
 브라우저 (입력 → 대상 확인 → 상태/이력)
   → Flask JSON API
-  → 백그라운드 작업 (해석 / 모의 설치)
+  → 백그라운드 작업 (해석 / 기본 모의 설치 또는 명시적 VM 실제 설치)
   → SQLite 요청 상태 + 기존 jobs/results
 ```
 
@@ -58,11 +65,11 @@ development/.venv/Scripts/python.exe -X utf8 development/app.py --interpreter ha
 |---|---|
 | `app.py` | Flask 라우트, localhost 제한, 요청 토큰·출처 검사, 안전한 오류 응답 |
 | `templates/index.html`, `static/` | 웹 확인 화면·상태 폴링·좌석별 결과·이력 |
-| `installone/web_jobs.py` | 백그라운드 실행, 웹 요청 SQL, 중복 실행 방지·재시작 처리 |
+| `installone/web_jobs.py` | 백그라운드 실행, 웹 요청 SQL, 설치 모드 보존, 중복 실행 방지·재시작 처리 |
 | `installone/core.py` | 기존 좌석/프로필 검증, jobs/results 저장·좌석별 실행 |
 | `installone/haigpt.py` | 실제 Gateway 인증·모델 목록·구조화 응답 재검증 |
-| `installone/executors.py` | 모의 실행기와 보관 중인 SSH 실행기. 웹에서는 모의 실행기만 사용 |
-| `scripts/install_python.ps1` | 추후 VM용 고정 설치/버전·예제·pip 검증 코드. VM 미검증 |
+| `installone/executors.py` | 모의 실행기와 승인 VM의 SSH 실행기. SSH는 고정 스크립트만 전달 |
+| `scripts/install_python.ps1` | VM의 전용 경로에 고정 Python 설치/버전·예제·pip 검증 코드 |
 | `requirements.txt` | 검증한 Flask와 하위 의존성 버전 고정 |
 | `check_haigpt.py`, `check_web.py`, `check_security.py` | 설치 없는 API 검사, HTTP 통합 검사, Git 키 노출 검사 |
 
@@ -74,9 +81,10 @@ Tkinter 화면·런타임 준비 코드와 Tk 전용 테스트를 제거했습�
 
 - 브라우저는 700ms 간격으로 JSON 상태를 조회합니다. 해석/설치 함수는 별도 스레드에서 실행하므로 HTTP 요청을 오래 붙잡지 않습니다.
 - 해석 요청은 UUID와 요청 해시로 재전송을 식별합니다. 입력 원문은 DB에 저장하지 않습니다.
-- 실행 API는 `confirmed: true`만 받고 대상·명령을 브라우저에서 받지 않습니다. DB의 확인 계획을 다시 검증합니다.
+- 실행 API는 `confirmed: true`만 받고 대상·명령을 브라우저에서 받지 않습니다. DB의 확인 계획과 저장된 설치 모드를 다시 검증합니다. 실제 모드에서 대상은 승인 VM 한 대로 제한합니다.
 - SQLite `BEGIN IMMEDIATE` 트랜잭션 안에서 계획 확인, 활성 작업의 좌석 점유 확인, 작업 생성·상태 변경을 수행합니다. 같은 요청의 동시 실행은 같은 작업 ID를 돌려주고 한 번만 실행합니다. 다른 요청의 겹치는 좌석은 409 충돌로 보류합니다.
-- 시작 시 이전 서버의 미완료 작업은 `interrupted`로 기록하며 자동 실행하거나 성공 처리하지 않습니다. 완료/확인 대기 이력은 유지합니다.
+- 시작 시 이전 서버의 미완료 작업은 `interrupted`로 기록하며 자동 실행하거나 성공 처리하지 않습니다. 실제 VM 작업 중단은 VM 상태 확인을 요구합니다. 완료/확인 대기 이력은 유지합니다.
+- `web_requests.executor`와 `jobs.executor`에 `mock`/`real`을 저장하고 화면의 요청·결과·이력에 설치 모드를 함께 표시합니다. 웹 요청에는 확인 당시 대상 IP와 VM 설정 지문도 저장합니다. 기존 DB의 웹 요청은 `mock`으로 이행합니다.
 - 최근 웹 요청 50개, 이전 데스크톱 결과 100개를 화면에서 조회합니다. DB의 오래된 데이터를 삭제하지는 않습니다.
 
 ## HaiGPT 서버 설정
@@ -95,7 +103,7 @@ notepad development/.env
 | `HAIGPT_MODEL` | 계정 목록의 ID. 현재 선택: gpt-6-luna |
 | `HAIGPT_TIMEOUT_SECONDS` | 기본 45초, 5~120 |
 | `HAIGPT_MAX_TOKENS` | 기본 1024, 128~4096 |
-| `VM_TARGETS_JSON` | 현재 `{}` 유지. VM 준비 후 승인 대상만 등록 |
+| `VM_TARGETS_JSON` | 기본 `{}`. 실제 모드에서는 승인 VM 한 대의 좌석 ID, IPv4, SSH 포트·계정, 절대 경로의 개인 키·known_hosts, `approved_test_vm: true` 필요 |
 | `MOCK_SEATS_JSON` | 선택 사항. 1·2번 좌석의 모의 시나리오 목록. 생략 시 기존 기본값 |
 
 한 줄 KEY=VALUE 형식. 빈 줄과 #로 시작하는 주석을 허용합니다. 양끝 따옴표는 제거하지만 변수/셸 확장·여러 줄·인라인 주석은 지원하지 않습니다. OS 환경변수와 섞지 않고 이 파일만 읽습니다. 변경 후 서버를 재시작하세요. 실제 .env와 백업은 Git 제외이며 .env.example만 공유합니다.
@@ -118,7 +126,7 @@ Set-Location development
 .venv/Scripts/python.exe -X utf8 check_security.py
 ```
 
-자동 테스트 앱 28개 + 정책 5개 통과. 외부 API·SSH를 모의 처리하며 실제 API 테스트와 구분합니다. 웹 서버가 실제 HaiGPT 모드로 실행 중일 때 HTTP 통합 검사:
+2026-11-27 현재 앱 회귀 테스트 37개 통과. 자동 테스트의 외부 API·SSH는 모의 처리하며 실제 VM 실행과 구분합니다. 웹 서버가 실제 HaiGPT 모드로 실행 중일 때 HTTP 통합 검사:
 
 ```powershell
 # 저장소 루트, 실제 API 해석 1회 + 모의 설치만 수행
@@ -145,18 +153,15 @@ development/.venv/Scripts/python.exe -X utf8 development/check_web.py --history-
 
 범위·시간·차단 사례·한계는 [quality/README.md](quality/README.md)를 참고하세요. 사용자 승인 없는 우회나 기준 완화는 금지합니다. 전역 설정은 변경하지 않습니다.
 
-## 집 컴퓨터에서 이어가기
+## 2026-11-27 승인 VM 검증
 
-1. `git clone --branch prototype/sunwoong https://github.com/ssw12099/openSW_InstallONE_1team.git`로 개인 웹 프로토타입을 가져옵니다. 기존 클론에서는 사용자 변경을 보존하며 해당 브랜치를 갱신합니다. `d4ea4a9`는 이전 데스크톱 버전이며 main에는 개인 웹 구현을 병합하지 않습니다.
-2. `.venv/`, `data/`, `__pycache__/`, 실제 API/VM 설정과 개인 SSH 키를 공유 패키지에 넣지 않습니다. 새 PC에서 가상환경과 키를 별도 준비합니다.
-3. 위 실행 명령으로 의존성을 설치하고 모의 웹 흐름·자동 테스트를 먼저 확인합니다. 새 API 설정 → 모델 목록 → 작은 실제 요청 → 웹 HaiGPT 해석과 모의 설치 순으로 확인합니다.
-4. Windows x64 VM 한 대와 스냅샷을 준비합니다. VM의 OpenSSH Server·서비스·방화벽 초기 설정은 관리자 권한이 필요한 별도 준비입니다. 개발 PC에서 오는 SSH만 허용하고 VM 로컬 계정에 공개 키를 등록합니다.
-5. 개발 PC에 개인 키를 보관하고 VM 콘솔에서 SSH 호스트 지문을 확인해 known_hosts에 등록합니다. `.env`의 VM_TARGETS_JSON에 좌석 ID별 host, port, user, identity_file, known_hosts, approved_test_vm을 설정합니다. SSH 개인 키는 .ssh에 보관하고 경로만 적습니다. 현재 웹은 VM 설정을 읽거나 SSH를 실행하지 않습니다.
-6. 준비 후 **별도 개발 작업으로** 웹의 실제 실행 경로를 승인 대상에 한해 연결합니다. 현재 버전에 없는 `--real`을 사용하거나 설치 스크립트를 노트북에서 직접 실행하지 마세요.
-   연결 시 `WebJobs`의 고정 `MockExecutor`와 실행기 표기를 명시적인 실행 모드로 분리하고, 서버 시작 때 승인 VM 대상 설정을 검증해야 합니다. 기존 `SSHExecutor`는 고정 PowerShell 스크립트만 전달하지만 VM에서 아직 실행해 보지 않았습니다. 모의 모드는 계속 기본값으로 두고 실제 모드는 준비한 VM에서만 별도로 검증합니다.
-7. 대상·설치 범위를 알린 후 1대 설치 → 재요청 재사용 → 버전/예제/pip → 연결/설치/검증 실패 → 재시작 이력 → 가능하면 2대 혼합 결과 순서로 실제 검증합니다.
-
-보관한 VM 스크립트는 원격 계정의 `%LOCALAPPDATA%\InstallONE\Python314` 전용 경로에 Python 3.14.7 x64 + pip를 설치하도록 작성했습니다. PATH·파일 연결·전역 launcher를 변경하지 않습니다. 공식 python.org 설치 파일의 Authenticode 서명을 검사하며 기존 전용 경로가 있으면 버전·예제·pip를 검사합니다. 다른 경로의 Python 검색/재사용, 실제 VM 호환성, SSH 단절 후 복구는 아직 미검증 또는 미구현입니다.
+- `git status -sb`: `prototype/sunwoong`의 깨끗한 시작 상태. 가상환경 Python 3.14.10 확인. 모의 앱 테스트 33개 통과 뒤 고정 SSH 옵션으로 `INSTALLONE-PC01`, `installone-pc01\installone`을 읽기 전용 확인했습니다.
+- 기존 `SSHExecutor`와 `install_python.ps1`을 승인 VM `172.29.153.128` 한 대에 실행했습니다. 첫 응답 `verified`/새 설치, 재실행 `verified`/기존 설치 재사용이며 양쪽 모두 Python 3.14.7·예제 출력 42를 검증했습니다. 스크립트의 pip 검사는 종료 코드 0이고 별도 읽기 전용 조회에서 pip 26.2.1 (Python 3.14)을 확인했습니다.
+- VM 설치는 원격 계정의 `%LOCALAPPDATA%\InstallONE\Python314` 전용 경로를 사용합니다. 공식 설치 파일의 Authenticode 서명을 검사하고 전역 PATH·파일 연결·launcher 변경 옵션은 끕니다. 메인 PC에서 설치 스크립트를 실행하지 않았습니다.
+- 이후 웹 기본 모의/명시적 실설치 모드를 연결했습니다. 자동 테스트는 가짜 VM 실행기를 사용하며 실제 설치를 반복하지 않습니다. 앱 회귀 37개, 실설치 설정 로더·첫 화면·상태 API를 확인했습니다.
+- **사용자 수동 Edge 검증:** `--executor real` 화면에서 실제 VM 설치 모드를 확인하고, 모의 해석으로 1번 좌석 `172.29.153.128`과 Python 3.14.7 x64 + pip 범위를 확인했습니다. 체크박스와 최종 확인 대화상자를 거쳐 실행한 결과, 실제 VM 성공 1·실패 0, 기존 설치 재사용, Python 3.14.7, 예제 출력 42를 확인했습니다. 새로고침 뒤 이력에도 `모의 응답 / 실제 VM 설치`와 성공 결과가 남았습니다. 이는 사용자가 직접 조작한 결과이며 Computer Use 자동 검증 결과가 아닙니다.
+- **추가 자동 검사:** Node.js 26.12.1의 절대 경로로 `node --check development/static/app.js` 통과. 강화 오프라인 앱·정책 테스트 42개 통과. 현재 작업 소스를 복사한 임시 저장소에서 Hook 통합 16개 시나리오 모두 예상대로 통과·차단했습니다. 이 검사들은 실제 VM 설치나 HaiGPT 호출을 하지 않습니다. 현재 셸의 PATH에는 Node가 없어 통합 검사 프로세스에만 설치 경로를 추가했습니다.
+- 실제 VM에서 연결 실패·설치 실패·검증 실패·SSH 단절 후 복구는 아직 검증하지 않았습니다. 다른 경로의 Python 검색/재사용 및 두 번째 VM은 지원 범위에 포함하지 않았습니다.
 
 ## 공식 근거
 

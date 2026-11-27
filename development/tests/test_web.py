@@ -251,6 +251,136 @@ class WebTests(unittest.TestCase):
         self.assertNotIn('api_key',history)
         self.assertNotIn('identity_file',history)
 
+    def test_real_mode_requires_confirmation_and_persists_distinct_result(self):
+        self.app.extensions['jobs'].close()
+        class FakeVM:
+            calls = 0
+            def run(self, seat):
+                self.calls += 1
+                return 'verified', '기존 설치 재사용; Python 3.14.7; 예제 출력 42 확인'
+        vm = FakeVM()
+        real = create_app(self.path, executor_mode='real', targets={'1': {'host': '172.29.153.128'}},
+                          executor=vm, delay=0)
+        try:
+            client = real.test_client()
+            headers = {'X-InstallONE-Token': real.extensions['request_token']}
+            status = client.get('/api/status', headers=headers).get_json()
+            self.assertEqual(status['executor'], 'real')
+            self.assertEqual(status['seats'], ['1'])
+            self.assertIn('실제 VM 설치 모드', client.get('/').get_data(as_text=True))
+            task = client.post('/api/requests', headers=headers, json={
+                'text': '1번 PC에 Python 실습환경 설치해 줘',
+                'request_key': str(uuid.uuid4())}).get_json()['id']
+            deadline = time.monotonic() + 4
+            while real.extensions['jobs'].get(task)['state'] != 'ready' and time.monotonic() < deadline:
+                time.sleep(.01)
+            preview = real.extensions['jobs'].get(task)
+            self.assertEqual(preview['executor'], 'real')
+            self.assertEqual(preview['targets'], {'1': '172.29.153.128'})
+            self.assertEqual(vm.calls, 0)
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': False}).status_code, 400)
+            self.assertEqual(vm.calls, 0)
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True, 'seats': ['2']}).status_code, 400)
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True}).status_code, 202)
+            deadline = time.monotonic() + 4
+            while real.extensions['jobs'].get(task)['state'] != 'finished' and time.monotonic() < deadline:
+                time.sleep(.01)
+            result = real.extensions['jobs'].get(task)
+            self.assertEqual(vm.calls, 1)
+            self.assertEqual(result['results'][0]['status'], 'verified')
+            with real.extensions['jobs'].store.connect() as db:
+                self.assertEqual(db.execute('SELECT executor FROM jobs WHERE id=?',
+                                            (result['job_id'],)).fetchone()[0], 'real')
+                self.assertEqual(db.execute('SELECT executor FROM web_requests WHERE id=?',
+                                            (task,)).fetchone()[0], 'real')
+        finally:
+            real.extensions['jobs'].close()
+        mock = create_app(self.path, delay=0)
+        try:
+            saved = mock.extensions['jobs'].get(task)
+            self.assertEqual(saved['executor'], 'real')
+            self.assertEqual(saved['results'][0]['status'], 'verified')
+            self.assertEqual(saved['targets'], {'1': '172.29.153.128'})
+        finally:
+            mock.extensions['jobs'].close()
+
+    def test_ready_request_cannot_change_execution_mode_after_restart(self):
+        task = self.submit('1번 PC에 Python 실습환경 설치해 줘').get_json()['id']
+        self.wait(task)
+        self.app.extensions['jobs'].close()
+        class FakeVM:
+            def run(self, seat):
+                raise AssertionError('old mock request must not reach VM')
+        real = create_app(self.path, executor_mode='real', targets={'1': {'host': '172.29.153.128'}},
+                          executor=FakeVM())
+        try:
+            client = real.test_client()
+            headers = {'X-InstallONE-Token': real.extensions['request_token']}
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True}).status_code, 409)
+            self.assertEqual(real.extensions['jobs'].get(task)['executor'], 'mock')
+        finally:
+            real.extensions['jobs'].close()
+
+    def test_ready_real_request_cannot_switch_vm_after_restart(self):
+        self.app.extensions['jobs'].close()
+        class FakeVM:
+            def run(self, seat):
+                raise AssertionError('changed target must not run')
+        first = create_app(self.path, executor_mode='real', targets={'1': {'host': '172.29.153.128'}},
+                           executor=FakeVM())
+        try:
+            client = first.test_client()
+            headers = {'X-InstallONE-Token': first.extensions['request_token']}
+            task = client.post('/api/requests', headers=headers, json={
+                'text': '1번 PC에 Python 실습환경 설치해 줘',
+                'request_key': str(uuid.uuid4())}).get_json()['id']
+            deadline = time.monotonic() + 4
+            while first.extensions['jobs'].get(task)['state'] != 'ready' and time.monotonic() < deadline:
+                time.sleep(.01)
+        finally:
+            first.extensions['jobs'].close()
+        changed = create_app(self.path, executor_mode='real', targets={'1': {'host': '172.29.153.129'}},
+                             executor=FakeVM())
+        try:
+            client = changed.test_client()
+            headers = {'X-InstallONE-Token': changed.extensions['request_token']}
+            self.assertEqual(changed.extensions['jobs'].get(task)['targets'], {'1': '172.29.153.128'})
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True}).status_code, 409)
+        finally:
+            changed.extensions['jobs'].close()
+
+    def test_real_verification_failure_is_not_counted_as_success(self):
+        self.app.extensions['jobs'].close()
+        class FakeVM:
+            def run(self, seat):
+                return 'verification_failed', '고정 설치 절차 실패. VM 상태를 확인하세요.'
+        real = create_app(self.path, executor_mode='real', targets={'1': {'host': '172.29.153.128'}},
+                          executor=FakeVM())
+        try:
+            client = real.test_client()
+            headers = {'X-InstallONE-Token': real.extensions['request_token']}
+            task = client.post('/api/requests', headers=headers, json={
+                'text': '1번 PC에 Python 실습환경 설치해 줘',
+                'request_key': str(uuid.uuid4())}).get_json()['id']
+            deadline = time.monotonic() + 4
+            while real.extensions['jobs'].get(task)['state'] != 'ready' and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True}).status_code, 202)
+            while real.extensions['jobs'].get(task)['state'] != 'finished' and time.monotonic() < deadline:
+                time.sleep(.01)
+            result = real.extensions['jobs'].get(task)
+            self.assertEqual(result['results'][0]['status'], 'verification_failed')
+            self.assertEqual(result['summary']['success'], 0)
+            self.assertEqual(result['summary']['failed'], 1)
+        finally:
+            real.extensions['jobs'].close()
+
     def test_unexpected_errors_never_leak(self):
         def fail(*args):raise RuntimeError('PRIVATE_SERVER_SECRET')
         self.app.extensions['jobs'].interpreter=fail

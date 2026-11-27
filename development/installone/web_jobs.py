@@ -6,7 +6,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from .core import Store, interpret, validate_plan, execute_job
-from .executors import MockExecutor
+from .executors import MockExecutor, SSHExecutor, load_targets
 from .haigpt import GatewayError
 from .settings import mock_seats
 
@@ -32,14 +32,25 @@ class Conflict(ValueError):
 
 class WebJobs:
     """HTTP와 백그라운드 작업 연결. 외부 호출 중 DB 잠금을 잡지 않는다."""
-    def __init__(self, path, mode="mock", interpreter=None, executor=None, delay=0.7, seats=None):
+    def __init__(self, path, mode="mock", interpreter=None, executor=None, delay=0.7, seats=None,
+                 executor_mode="mock", targets=None):
         self.store = Store(path)
         self.mode = mode
-        self.seats = mock_seats() if seats is None else seats
+        if executor_mode not in ("mock", "real"):
+            raise ValueError("지원하지 않는 설치 모드")
+        self.executor_mode = executor_mode
+        self.targets = (load_targets() if targets is None else targets) if executor_mode == "real" else {}
+        if executor_mode == "real" and len(self.targets) != 1:
+            raise ValueError("실제 설치 모드는 승인 VM 한 대만 등록하세요.")
+        self.target_hosts = {seat: target["host"] for seat, target in self.targets.items()}
+        self.target_digest = (hashlib.sha256(json.dumps(self.targets, sort_keys=True).encode()).hexdigest()
+                              if executor_mode == "real" else "")
+        self.seats = (self.targets if executor_mode == "real" else
+                      mock_seats() if seats is None else seats)
         if not self.seats or not set(self.seats) <= {"1", "2"}:
-            raise ValueError("모의 좌석 설정이 올바르지 않습니다.")
+            raise ValueError("등록 좌석 설정이 올바르지 않습니다.")
         self.interpreter = interpreter or interpret
-        self.executor = executor or MockExecutor(self.seats)
+        self.executor = executor or (SSHExecutor(self.targets) if executor_mode == "real" else MockExecutor(self.seats))
         self.delay = delay
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="installone")
         self.lock = threading.Lock()
@@ -49,7 +60,16 @@ class WebJobs:
                 id TEXT PRIMARY KEY, request_key TEXT UNIQUE NOT NULL, digest TEXT NOT NULL,
                 created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, interpreter TEXT NOT NULL,
                 state TEXT NOT NULL, plan TEXT, job_id TEXT, message TEXT NOT NULL DEFAULT '')""")
-            db.execute("""UPDATE results SET status='interrupted', detail='[모의] 서버 중단. 새 요청으로 다시 확인하세요.'
+            columns = {row[1] for row in db.execute("PRAGMA table_info(web_requests)")}
+            if "executor" not in columns:
+                db.execute("ALTER TABLE web_requests ADD COLUMN executor TEXT NOT NULL DEFAULT 'mock'")
+            if "target_hosts" not in columns:
+                db.execute("ALTER TABLE web_requests ADD COLUMN target_hosts TEXT NOT NULL DEFAULT '{}'")
+            if "target_digest" not in columns:
+                db.execute("ALTER TABLE web_requests ADD COLUMN target_digest TEXT NOT NULL DEFAULT ''")
+            db.execute("""UPDATE results SET status='interrupted', detail=CASE
+                WHEN job_id IN (SELECT id FROM jobs WHERE executor='real') THEN '[실제 VM] 서버 중단. VM 상태를 확인하세요.'
+                ELSE '[모의] 서버 중단. 새 요청으로 다시 확인하세요.' END
                 WHERE status IN ('pending','running') AND job_id IN
                 (SELECT job_id FROM web_requests WHERE state IN ('queued','running'))""")
             db.execute("""UPDATE jobs SET state='interrupted' WHERE id IN
@@ -74,15 +94,19 @@ class WebJobs:
         with self.lock, self.store.connect() as db:
             old = db.execute("SELECT * FROM web_requests WHERE request_key=?", (request_key,)).fetchone()
             if old:
-                if old["digest"] != digest or old["interpreter"] != self.mode:
+                if (old["digest"] != digest or old["interpreter"] != self.mode
+                        or old["executor"] != self.executor_mode or old["target_digest"] != self.target_digest):
                     raise Conflict("같은 요청 식별자로 다른 내용을 보낼 수 없습니다.")
                 return old["id"]
             active = db.execute("SELECT COUNT(*) FROM web_requests WHERE state IN ('interpreting','queued','running')").fetchone()[0]
             if active >= 8:
                 raise Conflict("진행 중인 요청이 많습니다. 잠시 후 다시 시도하세요.")
             task = uuid.uuid4().hex
-            db.execute("INSERT INTO web_requests(id,request_key,digest,interpreter,state) VALUES(?,?,?,?,?)",
-                       (task, request_key, digest, self.mode, "interpreting"))
+            db.execute("""INSERT INTO web_requests
+                (id,request_key,digest,interpreter,executor,target_hosts,target_digest,state)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                       (task, request_key, digest, self.mode, self.executor_mode,
+                        json.dumps(self.target_hosts), self.target_digest, "interpreting"))
         self.pool.submit(self._interpret, task, text)
         return task
 
@@ -115,6 +139,10 @@ class WebJobs:
                 return row["job_id"], False
             if row["state"] != "ready":
                 raise Conflict("실행 가능한 확인 상태가 아닙니다.")
+            if row["executor"] != self.executor_mode:
+                raise Conflict("요청의 설치 모드가 현재 서버와 다릅니다. 새 요청을 작성하세요.")
+            if row["target_digest"] != self.target_digest:
+                raise Conflict("승인 VM 설정이 요청 확인 이후 변경되었습니다. 새 요청을 작성하세요.")
             plan = validate_plan(json.loads(row["plan"]), self.seats)
             occupied = [r[0] for r in db.execute("""SELECT DISTINCT r.seat FROM results r
                 JOIN web_requests w ON w.job_id=r.job_id
@@ -124,7 +152,7 @@ class WebJobs:
                 raise Conflict("실행 중인 좌석: " + ", ".join(s + "번" for s in occupied) + ". 종료 후 다시 확인하여 실행하세요.")
             job = uuid.uuid4().hex
             db.execute("INSERT INTO jobs(id,interpreter,executor,profile,state) VALUES(?,?,?,?,?)",
-                       (job, row["interpreter"], "mock", plan.profile, "confirmed"))
+                       (job, row["interpreter"], self.executor_mode, plan.profile, "confirmed"))
             db.executemany("INSERT INTO results(job_id,seat,status) VALUES(?,?,?)", [(job, s, "pending") for s in plan.seats])
             db.execute("UPDATE web_requests SET state='queued',job_id=? WHERE id=?", (job, task))
         self.pool.submit(self._execute, task, job)
@@ -136,28 +164,31 @@ class WebJobs:
         parent = self
         class DelayedMock:
             def run(self, seat):
-                time.sleep(parent.delay)  # 모의 진행 상태 관찰용 지연. 실제 설치 아님.
+                time.sleep(parent.delay)
                 return parent.executor.run(seat)
         try:
-            execute_job(self.store, job, DelayedMock())
+            execute_job(self.store, job, self.executor if self.executor_mode == "real" else DelayedMock())
             with self.store.connect() as db:
                 db.execute("UPDATE web_requests SET state='finished' WHERE id=?", (task,))
         except Exception:
             with self.store.connect() as db:
-                db.execute("UPDATE results SET status='interrupted',detail='[모의] 작업 중단. 완료 여부를 확인하세요.' WHERE job_id=? AND status IN ('pending','running')", (job,))
+                detail = "[실제 VM] 작업 중단. VM 상태를 확인하세요." if self.executor_mode == "real" else "[모의] 작업 중단. 완료 여부를 확인하세요."
+                db.execute("UPDATE results SET status='interrupted',detail=? WHERE job_id=? AND status IN ('pending','running')", (detail, job))
                 db.execute("UPDATE jobs SET state='interrupted' WHERE id=?", (job,))
                 db.execute("UPDATE web_requests SET state='interrupted',message='작업 처리 중 오류. 결과를 확인하세요.' WHERE id=?", (task,))
 
     def get(self, task):
         with self.store.connect() as db:
-            row = db.execute("SELECT id,created,interpreter,state,plan,job_id,message FROM web_requests WHERE id=?", (task,)).fetchone()
+            row = db.execute("""SELECT id,created,interpreter,executor,target_hosts,state,plan,job_id,message
+                FROM web_requests WHERE id=?""", (task,)).fetchone()
             if not row:
                 raise LookupError()
             result = dict(row)
             result["plan"] = json.loads(result["plan"]) if result["plan"] else None
             result["results"] = [dict(r) for r in db.execute("SELECT seat,status,detail FROM results WHERE job_id=? ORDER BY seat", (row["job_id"],))]
             result["summary"] = summarize(result["results"], result["plan"])
-            result["executor"] = "mock"
+            saved_hosts = json.loads(result.pop("target_hosts"))
+            result["targets"] = {seat: saved_hosts[seat] for seat in result["plan"]["seats"]} if result["plan"] and result["executor"] == "real" else {}
             return result
 
     def history(self):

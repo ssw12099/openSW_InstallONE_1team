@@ -1,4 +1,4 @@
-"""localhost 전용 Flask 웹 앱. SSH/실제 설치를 활성화하는 옵션이 없다."""
+"""localhost 전용 Flask 웹 앱. 실제 설치는 명시적 서버 옵션에서만 활성화한다."""
 import argparse
 import secrets
 from pathlib import Path
@@ -10,13 +10,13 @@ from installone.web_jobs import WebJobs, Conflict
 ROOT = Path(__file__).resolve().parent
 
 
-def create_app(db_path=None, mode="mock", **worker_options):
+def create_app(db_path=None, mode="mock", executor_mode="mock", **worker_options):
     # HTTP 계층은 접근 제어를 맡고 작업 상태는 WebJobs에 위임한다.
     if mode not in ("mock", "haigpt"):
         raise ValueError("지원하지 않는 해석 모드")
     app = Flask(__name__)
     app.config.update(MAX_CONTENT_LENGTH=8192, TRUSTED_HOSTS=["127.0.0.1", "localhost"])
-    jobs = WebJobs(db_path or ROOT / "data/mock.db", mode, **worker_options)
+    jobs = WebJobs(db_path or ROOT / "data/mock.db", mode, executor_mode=executor_mode, **worker_options)
     token = secrets.token_urlsafe(32)
     app.extensions["jobs"] = jobs
     app.extensions["request_token"] = token
@@ -57,11 +57,14 @@ def create_app(db_path=None, mode="mock", **worker_options):
 
     @app.get("/")
     def index():
-        return render_template("index.html", token=token, version=VERSION, seats=jobs.seats)
+        return render_template("index.html", token=token, version=VERSION, seats=jobs.seats,
+                               executor_mode=executor_mode)
 
     @app.get("/api/status")
     def status():
-        return jsonify(interpreter=mode, connection=jobs.connection, executor="mock", vm="VM 미검증", version=VERSION, seats=list(jobs.seats))
+        return jsonify(interpreter=mode, connection=jobs.connection, executor=executor_mode,
+                       vm="승인 VM 실제 설치" if executor_mode == "real" else "모의 설치", version=VERSION,
+                       seats=list(jobs.seats))
 
     @app.post("/api/requests")
     def submit():
@@ -93,13 +96,15 @@ def create_app(db_path=None, mode="mock", **worker_options):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--interpreter", choices=("mock", "haigpt"), default="mock")
+    parser.add_argument("--executor", choices=("mock", "real"), default="mock")
     args = parser.parse_args()
     from werkzeug.serving import make_server
     # 바인딩에 성공한 단일 서버만 DB 중단 작업 복구를 시작한다.
     server = make_server("127.0.0.1", 5000, lambda environ, start_response: [], threaded=True)
-    app = create_app(mode=args.interpreter)
+    app = create_app(mode=args.interpreter, executor_mode=args.executor)
     server.app = app
-    print("InstallONE: http://127.0.0.1:5000 | 모의 설치 — 실제 PC 변경 없음 | VM 미검증", flush=True)
+    print("InstallONE: http://127.0.0.1:5000 | " +
+          ("승인 VM 실제 설치 모드" if args.executor == "real" else "모의 설치 — 실제 PC 변경 없음"), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
