@@ -2,6 +2,7 @@
 import re
 import sqlite3
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,14 @@ def interpret(request, seats, mode):
     if mode != "mock":
         raise ValueError("지원하지 않는 해석 모드입니다.")
     # 엄격한 전체 문장 일치: 범위·추가 프로그램·명령을 조용히 무시하지 않는다.
+    range_match = re.fullmatch(
+        r"\s*(\d+)번부터\s*(\d+)번\s*PC에\s*(?:Python|파이썬)\s*실습환경\s*설치해\s*줘[.!]?\s*",
+        request, re.IGNORECASE)
+    if range_match:
+        start, end = map(int, range_match.groups())
+        if start > end or end - start >= len(seats):
+            raise ValueError("등록된 좌석의 올바른 범위를 지정하세요.")
+        return validate_plan({"seats": [str(n) for n in range(start, end + 1)], "profile": PROFILE}, seats)
     match = re.fullmatch(
         r"\s*(\d+번(?:\s*,\s*\d+번)*)\s*PC에\s*(?:Python|파이썬)\s*실습환경\s*설치해\s*줘[.!]?\s*",
         request, re.IGNORECASE)
@@ -104,14 +113,26 @@ class Store:
                 FROM jobs j JOIN results r ON j.id=r.job_id ORDER BY j.created DESC,j.rowid DESC,r.seat""")]
 
 
-def execute_job(store, job, executor):
+def execute_job(store, job, executor, parallel=False):
     """작업을 한 번 점유하고 좌석별 실패를 격리하여 결과를 저장한다."""
-    for seat in store.claim(job):
-        store.result(job, seat, "running", "")
+    seats = store.claim(job)
+    def run_one(seat):
         try:
-            status, detail = executor.run(seat)
+            return executor.run(seat)
         except Exception:
             # 원격 stdout, 예외 메시지에 들어 있을 수 있는 접속정보는 저장하지 않는다.
-            status, detail = "internal_failed", "내부 처리 오류. 설정과 테스트를 확인하세요."
-        store.result(job, seat, status, detail)
+            return "internal_failed", "내부 처리 오류. 설정과 테스트를 확인하세요."
+    for seat in seats:
+        store.result(job, seat, "running", "")
+    if parallel and len(seats) > 1:
+        # 원격 실행은 좌석별로 독립. 개별 결과는 완료되는 즉시 별도 DB 연결에 기록한다.
+        with ThreadPoolExecutor(max_workers=min(4, len(seats)), thread_name_prefix="installone-vm") as pool:
+            futures = {pool.submit(run_one, seat): seat for seat in seats}
+            for future in as_completed(futures):
+                status, detail = future.result()
+                store.result(job, futures[future], status, detail)
+    else:
+        for seat in seats:
+            status, detail = run_one(seat)
+            store.result(job, seat, status, detail)
     store.finish(job)

@@ -23,7 +23,7 @@
 2. `installone/web_jobs.py`: 스레드로 해석·실행을 분리하고 DB 트랜잭션으로 중복 실행을 막는다.
 3. `installone/haigpt.py` → `settings.py`: 단일 `.env`에서 인증 설정을 읽고 공식 Gateway를 호출한다. 설정/HTTP 원문을 사용자 오류에 넣지 않는다.
 4. `installone/core.py`: AI가 고른 좌석·프로필을 다시 검증하고 작업·좌석별 결과를 SQLite에 저장한다.
-5. `installone/executors.py`: 기본 웹은 `MockExecutor`, 명시적 `--executor real`은 승인 VM 한 대의 `SSHExecutor`를 사용한다. 설치 스크립트는 VM에서 새 설치와 재사용을 검증했다.
+5. `installone/executors.py`: 기본 웹은 `MockExecutor`, 명시적 `--executor real`은 등록된 승인 VM 최대 네 대의 `SSHExecutor`를 사용한다. `core.execute_job`은 실제 모드에서 좌석별 SSH를 최대 네 개 병렬로 실행하고 각각 완료 시 기록한다. 설치 스크립트의 새 설치/재사용 실증은 이전 PC01 한 대에 한정된다.
 
 ## 수정할 때 확인할 경계
 

@@ -40,15 +40,18 @@ class WebJobs:
             raise ValueError("지원하지 않는 설치 모드")
         self.executor_mode = executor_mode
         self.targets = (load_targets() if targets is None else targets) if executor_mode == "real" else {}
-        if executor_mode == "real" and len(self.targets) != 1:
-            raise ValueError("실제 설치 모드는 승인 VM 한 대만 등록하세요.")
+        if executor_mode == "real" and not 1 <= len(self.targets) <= 4:
+            raise ValueError("실제 설치 모드는 승인 VM을 1~4대 등록하세요.")
         self.target_hosts = {seat: target["host"] for seat, target in self.targets.items()}
         self.target_digest = (hashlib.sha256(json.dumps(self.targets, sort_keys=True).encode()).hexdigest()
                               if executor_mode == "real" else "")
         self.seats = (self.targets if executor_mode == "real" else
                       mock_seats() if seats is None else seats)
-        if not self.seats or not set(self.seats) <= {"1", "2"}:
+        allowed = {"1", "2", "3", "4"} if executor_mode == "real" else {"1", "2"}
+        if not self.seats or not set(self.seats) <= allowed:
             raise ValueError("등록 좌석 설정이 올바르지 않습니다.")
+        if executor_mode == "real" and len({target["host"] for target in self.targets.values()}) != len(self.targets):
+            raise ValueError("같은 VM 주소를 두 좌석에 등록할 수 없습니다.")
         self.interpreter = interpreter or interpret
         self.executor = executor or (SSHExecutor(self.targets) if executor_mode == "real" else MockExecutor(self.seats))
         self.delay = delay
@@ -167,7 +170,8 @@ class WebJobs:
                 time.sleep(parent.delay)
                 return parent.executor.run(seat)
         try:
-            execute_job(self.store, job, self.executor if self.executor_mode == "real" else DelayedMock())
+            execute_job(self.store, job, self.executor if self.executor_mode == "real" else DelayedMock(),
+                        parallel=self.executor_mode == "real")
             with self.store.connect() as db:
                 db.execute("UPDATE web_requests SET state='finished' WHERE id=?", (task,))
         except Exception:

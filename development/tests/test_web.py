@@ -307,6 +307,51 @@ class WebTests(unittest.TestCase):
         finally:
             mock.extensions['jobs'].close()
 
+    def test_four_real_vms_run_in_parallel_and_keep_individual_results(self):
+        self.app.extensions['jobs'].close()
+        barrier = threading.Barrier(4)
+        class FourVMs:
+            def run(self, seat):
+                barrier.wait(timeout=2)
+                if seat == '3':
+                    return 'install_failed', '고정 설치 절차 실패. VM 상태를 확인하세요.'
+                return 'verified', '새 설치; Python 3.14.7; 예제 출력 42 확인'
+        targets = {str(n): {'host': f'192.0.2.{n}'} for n in range(1, 5)}
+        real = create_app(self.path, executor_mode='real', targets=targets, executor=FourVMs())
+        try:
+            client = real.test_client()
+            headers = {'X-InstallONE-Token': real.extensions['request_token']}
+            self.assertEqual(client.get('/api/status', headers=headers).get_json()['seats'], ['1','2','3','4'])
+            response = client.post('/api/requests', headers=headers, json={
+                'text': '1번부터 4번 PC에 Python 실습환경 설치해 줘',
+                'request_key': str(uuid.uuid4())})
+            task = response.get_json()['id']
+            deadline = time.monotonic() + 4
+            while real.extensions['jobs'].get(task)['state'] != 'ready' and time.monotonic() < deadline:
+                time.sleep(.01)
+            preview = real.extensions['jobs'].get(task)
+            self.assertEqual(preview['plan']['seats'], ['1','2','3','4'])
+            self.assertEqual(preview['targets'], {seat: target['host'] for seat, target in targets.items()})
+            self.assertEqual(client.post('/api/requests/'+task+'/execute', headers=headers,
+                                         json={'confirmed': True}).status_code, 202)
+            deadline = time.monotonic() + 4
+            while real.extensions['jobs'].get(task)['state'] != 'finished' and time.monotonic() < deadline:
+                time.sleep(.01)
+            result = real.extensions['jobs'].get(task)
+            self.assertEqual(result['state'], 'finished')
+            self.assertEqual({r['seat']: r['status'] for r in result['results']},
+                             {'1':'verified','2':'verified','3':'install_failed','4':'verified'})
+            self.assertEqual(result['summary']['success'], 3)
+            self.assertEqual(result['summary']['failed'], 1)
+        finally:
+            real.extensions['jobs'].close()
+
+    def test_real_mode_rejects_duplicate_vm_addresses(self):
+        self.app.extensions['jobs'].close()
+        with self.assertRaisesRegex(ValueError, '같은 VM 주소'):
+            create_app(self.path, executor_mode='real', targets={
+                '1': {'host': '192.0.2.1'}, '2': {'host': '192.0.2.1'}}, executor=object())
+
     def test_ready_request_cannot_change_execution_mode_after_restart(self):
         task = self.submit('1번 PC에 Python 실습환경 설치해 줘').get_json()['id']
         self.wait(task)

@@ -17,7 +17,10 @@ class FlowTests(unittest.TestCase):
 
     def test_request_and_validation(self):
         self.assertEqual(interpret("1번 PC에 Python 실습환경 설치해 줘", {"1": {}}, "mock"), Plan(("1",), "python-lab"))
-        for request in ("Python 설치", "3번 PC에 Python 실습환경 설치해 줘", "1번 PC에 Java 설치해 줘", "1번 PC에 Python 실습환경 설치해 줘; whoami", "1번부터 2번 PC에 Python 실습환경 설치해 줘"):
+        seats = {str(n): {} for n in range(1, 5)}
+        self.assertEqual(interpret("1번부터 4번 PC에 Python 실습환경 설치해 줘", seats, "mock"),
+                         Plan(("1", "2", "3", "4"), "python-lab"))
+        for request in ("Python 설치", "3번 PC에 Python 실습환경 설치해 줘", "1번 PC에 Java 설치해 줘", "1번 PC에 Python 실습환경 설치해 줘; whoami", "4번부터 1번 PC에 Python 실습환경 설치해 줘", "1번부터 5번 PC에 Python 실습환경 설치해 줘"):
             with self.subTest(request=request), self.assertRaises(ValueError):
                 interpret(request, {"1": {}, "2": {}}, "mock")
         for value in ({"seats": ["1"], "profile": "python-lab", "command": "whoami"}, {"seats": ["1", "1"], "profile": "python-lab"}, {"seats": [1], "profile": "python-lab"}, {"seats": ["1"], "profile": "java"}, {"seats": [], "profile": "python-lab"}):
@@ -57,6 +60,21 @@ class FlowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "승인된"):
             load_targets(config)
 
+    def test_four_approved_targets_and_duplicate_address_rejected(self):
+        config = Path(self.temp.name) / ".env"
+        key = Path(self.temp.name) / "test_key"
+        hosts = Path(self.temp.name) / "known_hosts"
+        key.touch(); hosts.touch()
+        targets = {str(n): dict(host=f"192.0.2.{n}", port=22, user="labuser",
+                                identity_file=str(key), known_hosts=str(hosts),
+                                approved_test_vm=True) for n in range(1, 5)}
+        config.write_text("VM_TARGETS_JSON=" + json.dumps(targets), encoding="utf-8")
+        self.assertEqual(len(load_targets(config)), 4)
+        targets["4"]["host"] = targets["1"]["host"]
+        config.write_text("VM_TARGETS_JSON=" + json.dumps(targets), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "같은 VM 주소"):
+            load_targets(config)
+
     @patch("installone.executors.subprocess.run")
     def test_remote_response_is_verified_not_just_exit_code(self, run):
         executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
@@ -67,12 +85,76 @@ class FlowTests(unittest.TestCase):
                  (1, json.dumps(dict(status="verification_failed", version="", example="", reused=False)), "verification_failed"),
                  (0, json.dumps(dict(status="verified", version=VERSION, example="42", reused=True)), "verified")]
         for code, output, expected in cases:
-            run.return_value = subprocess.CompletedProcess([], code, output, "secret error")
+            run.side_effect = [subprocess.CompletedProcess([], 0, '{"status":"missing"}', ""),
+                               subprocess.CompletedProcess([], code, output, "secret error")]
             self.assertEqual(executor.run("1")[0], expected)
         args = run.call_args.args[0]
         self.assertIn("StrictHostKeyChecking=yes", args)
         self.assertIn("BatchMode=yes", args)
-        run.side_effect = subprocess.TimeoutExpired("ssh", 900)
+        self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        run.side_effect = [subprocess.CompletedProcess([], 0, '{"status":"missing"}', ""),
+                           subprocess.TimeoutExpired("ssh", 900),
+                           subprocess.TimeoutExpired("ssh", 45)]
+        self.assertEqual(executor.run("1")[0], "outcome_unknown")
+
+    @patch("installone.executors.subprocess.run")
+    def test_existing_python_uses_short_read_only_verification(self, run):
+        executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
+        run.return_value = subprocess.CompletedProcess([], 0, json.dumps({
+            "status": "verified", "version": VERSION, "example": "42"}), "")
+        self.assertEqual(executor.run("1")[0], "verified")
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.kwargs["timeout"], 45)
+        self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+    @patch("installone.executors.subprocess.run")
+    def test_console_stdin_is_not_inherited_by_ssh(self, run):
+        executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
+        def emulate_windows_console_hang(args, **kwargs):
+            if kwargs.get("stdin") != subprocess.DEVNULL:
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+            return subprocess.CompletedProcess(args, 0, json.dumps({
+                "status": "verified", "version": VERSION, "example": "42"}), "")
+        run.side_effect = emulate_windows_console_hang
+        self.assertEqual(executor.run("1")[0], "verified")
+        self.assertEqual(run.call_count, 1)
+
+    @patch("installone.executors.subprocess.run")
+    def test_unconfirmed_preflight_never_starts_installation(self, run):
+        executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
+        run.side_effect = subprocess.TimeoutExpired("ssh", 45)
+        self.assertEqual(executor.run("1")[0], "outcome_unknown")
+        self.assertEqual(run.call_count, 1)
+        run.side_effect = None
+        run.return_value = subprocess.CompletedProcess([], 0, '{"status":"invalid"}', "")
+        self.assertEqual(executor.run("1")[0], "verification_failed")
+        self.assertEqual(run.call_count, 2)
+
+    @patch("installone.executors.subprocess.run")
+    def test_timeout_verifies_installed_python_without_reinstalling(self, run):
+        executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
+        run.side_effect = [subprocess.CompletedProcess([], 0, '{"status":"missing"}', ""),
+                           subprocess.TimeoutExpired("ssh", 900),
+                           subprocess.CompletedProcess([], 0, json.dumps({
+                               "status": "verified", "version": VERSION, "example": "42"}), "")]
+        status, detail = executor.run("1")
+        self.assertEqual(status, "verified")
+        self.assertIn("별도 검증", detail)
+        self.assertEqual(run.call_count, 3)
+        encoded = run.call_args.args[0][-1].split("-EncodedCommand ", 1)[1]
+        import base64
+        verifier = base64.b64decode(encoded).decode("utf-16le")
+        self.assertIn("pip --version", verifier)
+        self.assertNotIn("Invoke-WebRequest", verifier)
+        self.assertNotIn("Start-Process", verifier)
+
+    @patch("installone.executors.subprocess.run")
+    def test_timeout_verification_rejects_wrong_version(self, run):
+        executor = SSHExecutor({"1": dict(host="192.0.2.10", port=22, user="labuser", identity_file="key", known_hosts="hosts")})
+        run.side_effect = [subprocess.CompletedProcess([], 0, '{"status":"missing"}', ""),
+                           subprocess.TimeoutExpired("ssh", 900),
+                           subprocess.CompletedProcess([], 0, json.dumps({
+                               "status": "verified", "version": "0.0", "example": "42"}), "")]
         self.assertEqual(executor.run("1")[0], "outcome_unknown")
 
 

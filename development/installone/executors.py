@@ -10,6 +10,33 @@ from .settings import ENV_FILE, vm_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# 설치 SSH 세션이 응답 없이 끝나지 않을 때만 실행하는 읽기 전용 재검증.
+# 원래 설치 명령의 종료 코드를 추측하거나 설치 명령을 다시 보내지 않는다.
+VERIFY_SCRIPT = r'''
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$target = Join-Path $env:LOCALAPPDATA 'InstallONE\Python314'
+$python = Join-Path $target 'python.exe'
+if (-not (Test-Path -LiteralPath $python)) {
+    $state = if (Test-Path -LiteralPath $target) { 'invalid' } else { 'missing' }
+    @{status=$state} | ConvertTo-Json -Compress
+    exit 0
+}
+try {
+    $version = & $python -I -c 'import platform; print(platform.python_version())'
+    if ($LASTEXITCODE -ne 0 -or $version -ne '3.14.7') { throw 'Version mismatch' }
+    $example = & $python -I -c 'print(sum([20,22]))'
+    if ($LASTEXITCODE -ne 0 -or $example -ne '42') { throw 'Example mismatch' }
+    & $python -I -m pip --version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Missing pip' }
+    @{status='verified'; version=$version; example=$example} | ConvertTo-Json -Compress
+    exit 0
+} catch {
+    @{status='invalid'} | ConvertTo-Json -Compress
+    exit 0
+}
+'''
+
 
 class MockExecutor:
     """고정 모의 시나리오. 네트워크나 설치 부작용이 없다."""
@@ -35,6 +62,9 @@ def load_targets(path=ENV_FILE):
     data = {"seats": vm_values(path)}
     if type(data) is not dict or set(data) != {"seats"} or type(data["seats"]) is not dict or not data["seats"]:
         raise ValueError(".env의 VM_TARGETS_JSON 설정을 확인하세요.")
+    if len(data["seats"]) > 4 or not set(data["seats"]) <= {"1", "2", "3", "4"}:
+        raise ValueError("승인된 1~4번 VM을 최대 네 대 등록하세요.")
+    hosts = set()
     for seat, target in data["seats"].items():
         if not re.fullmatch(r"[1-9][0-9]*", seat) or type(target) is not dict:
             raise ValueError("좌석 설정 형식 오류")
@@ -43,6 +73,9 @@ def load_targets(path=ENV_FILE):
         address = ipaddress.ip_address(target["host"])
         if address.version != 4 or address.is_loopback or address.is_unspecified or address.is_multicast:
             raise ValueError("테스트 VM의 IPv4 주소를 지정하세요. 호스트 PC는 대상이 아닙니다.")
+        if target["host"] in hosts:
+            raise ValueError("같은 VM 주소를 두 좌석에 등록할 수 없습니다.")
+        hosts.add(target["host"])
         if target["approved_test_vm"] is not True:
             raise ValueError("승인된 테스트 VM만 등록할 수 있습니다.")
         if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}", target["user"]):
@@ -60,22 +93,59 @@ class SSHExecutor:
     def __init__(self, targets):
         self.targets = targets
 
-    def run(self, seat):
-        target = self.targets[seat]
-        script = (ROOT / "scripts/install_python.ps1").read_text(encoding="utf-8")
+    @staticmethod
+    def _ssh_args(target, script):
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        args = ["ssh", "-F", "NUL", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+        return ["ssh", "-F", "NUL", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
                 "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
                 "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
                 "-o", f'UserKnownHostsFile={target["known_hosts"]}',
                 "-i", target["identity_file"], "-p", str(target["port"]),
                 f'{target["user"]}@{target["host"]}',
                 "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded]
+
+    def _probe_installation(self, target, timeout):
         try:
-            result = subprocess.run(args, capture_output=True, timeout=900, text=True,
+            check = subprocess.run(self._ssh_args(target, VERIFY_SCRIPT), stdin=subprocess.DEVNULL,
+                                   capture_output=True, timeout=timeout,
+                                   text=True, encoding="utf-8", errors="replace",
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if check.returncode == 0:
+                payload = json.loads(check.stdout.strip())
+                if type(payload) is dict:
+                    if (set(payload) == {"status", "version", "example"}
+                            and payload == {"status": "verified", "version": VERSION, "example": "42"}):
+                        return "verified"
+                    if payload == {"status": "missing"}:
+                        return "missing"
+                    if payload == {"status": "invalid"}:
+                        return "invalid"
+        except (subprocess.TimeoutExpired, OSError, ValueError, TypeError):
+            pass
+        return "unknown"
+
+    def _verify_after_timeout(self, target):
+        if self._probe_installation(target, 45) == "verified":
+            return "verified", f"설치 응답 시간 초과 후 별도 검증 완료; Python {VERSION}; 예제 출력 42·pip 확인"
+        return "outcome_unknown", "응답 시간 초과. VM에서 설치가 계속될 수 있으므로 상태 확인 후 재실행하세요."
+
+    def run(self, seat):
+        target = self.targets[seat]
+        # 설치 경로가 없다고 확인됐을 때만 설치를 시작한다. 접속 지연은 설치 허가가 아니다.
+        preflight = self._probe_installation(target, 45)
+        if preflight == "verified":
+            return "verified", f"기존 설치 재사용; Python {VERSION}; 예제 출력 42·pip 확인"
+        if preflight == "invalid":
+            return "verification_failed", "전용 Python 경로가 불완전하거나 버전·pip 검증에 실패했습니다. VM 상태를 확인하세요."
+        if preflight == "unknown":
+            return "outcome_unknown", "사전 설치 상태 확인 시간 초과. 설치 명령을 실행하지 않았습니다. VM 상태를 확인하세요."
+        script = (ROOT / "scripts/install_python.ps1").read_text(encoding="utf-8")
+        args = self._ssh_args(target, script)
+        try:
+            result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, timeout=900, text=True,
                                     encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.TimeoutExpired:
-            return "outcome_unknown", "응답 시간 초과. VM에서 설치가 계속될 수 있으므로 상태 확인 후 재실행하세요."
+            return self._verify_after_timeout(target)
         except OSError:
             return "connection_failed", "SSH 클라이언트를 실행할 수 없습니다."
         if result.returncode == 255:
